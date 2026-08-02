@@ -59,7 +59,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({ product, onClose }) 
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative bg-white rounded-xl max-w-3xl w-full shadow-2xl overflow-hidden z-10 my-6 border border-slate-200 flex flex-col md:flex-row">
+      <div className="relative bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl z-10 my-6 border border-slate-200 flex flex-col md:flex-row">
         {/* CLOSE BUTTON */}
         <button
           onClick={onClose}
