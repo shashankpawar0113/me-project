@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { Product } from '@/types/product';
-import { MessageCircle, Ban } from 'lucide-react';
+import { ShoppingBag, Ban, Eye } from 'lucide-react';
+import { useCart } from '@/context/CartContext';
 
 interface ProductCardProps {
   product: Product;
@@ -10,15 +11,13 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenModal }) => {
+  const { addToCart } = useCart();
   const isSold = product.status === 'Sold';
 
-  const rawMessage = `Hi! I'm interested in buying the ${product.title}. Listed Price: ₹${product.sellingPrice}. Product ID: #${product.id}. Is this item still available?`;
-  const whatsappUrl = `https://wa.me/917078523738?text=${encodeURIComponent(rawMessage)}`;
-
-  const handleWhatsAppClick = (e: React.MouseEvent) => {
+  const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isSold) return;
-    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    addToCart(product, 1);
   };
 
   const getBadgeStyle = () => {
@@ -38,7 +37,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenModal }
   return (
     <div
       onClick={() => onOpenModal(product)}
-      className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between cursor-pointer p-3 sm:p-4"
+      className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between cursor-pointer p-3 sm:p-4 group"
     >
       <div>
         {/* TOP CONDITION & STOCK BADGES */}
@@ -63,11 +62,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenModal }
               'https://images.unsplash.com/photo-1505797149-43b0069ec26b?auto=format&fit=crop&w=600&q=80'
             }
             alt={product.title}
-            className={`w-full h-full object-cover object-center transition-transform duration-300 hover:scale-105 ${
+            className={`w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-105 ${
               isSold ? 'opacity-50 grayscale' : ''
             }`}
             loading="lazy"
           />
+          <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <span className="px-3 py-1.5 bg-white/90 backdrop-blur-xs rounded-full text-slate-900 font-bold text-xs shadow-md flex items-center gap-1">
+              <Eye className="w-3.5 h-3.5" /> View Details
+            </span>
+          </div>
         </div>
 
         {/* TITLE & PRICING */}
@@ -89,9 +93,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenModal }
         </div>
       </div>
 
-      {/* FULL-WIDTH CTA BUTTON */}
+      {/* FULL-WIDTH ADD TO CART BUTTON */}
       <button
-        onClick={handleWhatsAppClick}
+        onClick={handleAddToCart}
         disabled={isSold}
         className={`w-full py-2.5 px-3 rounded text-xs font-bold flex items-center justify-center gap-2 transition-all ${
           isSold
@@ -106,8 +110,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenModal }
           </>
         ) : (
           <>
-            <MessageCircle className="w-4 h-4 fill-current shrink-0" />
-            <span>Buy Now via WhatsApp</span>
+            <ShoppingBag className="w-4 h-4 shrink-0" />
+            <span>Add to Cart</span>
           </>
         )}
       </button>

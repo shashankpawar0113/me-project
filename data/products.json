@@ -1,1 +1,17 @@
-[]
+[
+  {
+    "id": "PRD-TEST-1",
+    "title": "Premium Office Chair",
+    "sellingPrice": 3500,
+    "mrp": 8000,
+    "quantity": 5,
+    "condition": "LIKE NEW",
+    "status": "Available",
+    "category": "Furniture",
+    "images": [
+      "https://images.unsplash.com/photo-1505797149-43b0069ec26b?auto=format&fit=crop&w=800&q=80"
+    ],
+    "description": "Ergonomic mesh office chair with high back and lumbar support.",
+    "createdAt": "2026-08-02T12:14:33.069Z"
+  }
+]

@@ -3,6 +3,8 @@
 import React from 'react';
 import { Store, LayoutGrid, Receipt, User } from 'lucide-react';
 import { ActiveTab } from '@/types/product';
+import { useAuth } from '@/context/AuthContext';
+import { useCart } from '@/context/CartContext';
 
 interface BottomNavProps {
   activeTab: ActiveTab;
@@ -10,11 +12,14 @@ interface BottomNavProps {
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) => {
+  const { currentUser } = useAuth();
+  const { orders } = useCart();
+
   const tabs = [
     { id: 'shop' as ActiveTab, label: 'Shop', icon: Store },
     { id: 'categories' as ActiveTab, label: 'Categories', icon: LayoutGrid },
-    { id: 'orders' as ActiveTab, label: 'Orders', icon: Receipt },
-    { id: 'account' as ActiveTab, label: 'Account', icon: User },
+    { id: 'orders' as ActiveTab, label: 'Orders', icon: Receipt, badge: orders.length > 0 ? orders.length : undefined },
+    { id: 'account' as ActiveTab, label: currentUser ? 'Profile' : 'Sign In', icon: User },
   ];
 
   return (
@@ -26,12 +31,24 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) 
           return (
             <button
               key={tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded transition-colors ${
+              onClick={() => {
+                onTabChange(tab.id);
+                const el = document.getElementById('catalog');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded transition-colors relative ${
+
                 isActive ? 'text-[#043d27]' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+              <div className="relative">
+                <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.2]' : 'stroke-[1.8]'}`} />
+                {tab.badge !== undefined && (
+                  <span className="absolute -top-1 -right-2 bg-[#043d27] text-white text-[9px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center">
+                    {tab.badge}
+                  </span>
+                )}
+              </div>
               <span className={`text-[10px] ${isActive ? 'font-bold' : 'font-medium'}`}>
                 {tab.label}
               </span>

@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { InventoryProvider } from '@/context/InventoryContext';
+import { AuthProvider } from '@/context/AuthContext';
+import { CartProvider } from '@/context/CartContext';
 
 export const metadata: Metadata = {
   title: 'Malik Enterprises | Quality Refurbished Goods, Unbeatable Prices',
@@ -15,10 +17,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased min-h-screen bg-[#f9f9ff] text-[#161c27]">
-        <InventoryProvider>
-          {children}
-        </InventoryProvider>
+        <AuthProvider>
+          <CartProvider>
+            <InventoryProvider>
+              {children}
+            </InventoryProvider>
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );
 }
+

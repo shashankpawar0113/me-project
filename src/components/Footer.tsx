@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { ShieldCheck } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -9,7 +10,7 @@ export const Footer: React.FC = () => {
         Powered by Malik Enterprises
       </div>
 
-      <div className="flex items-center justify-center text-[11px] text-slate-500 font-medium">
+      <div className="flex items-center justify-center gap-4 text-[11px] text-slate-500 font-medium">
         <a
           href="https://wa.me/917078523738?text=Hi%20Malik%20Enterprises!"
           target="_blank"
@@ -17,6 +18,14 @@ export const Footer: React.FC = () => {
           className="hover:text-slate-800 transition-colors font-semibold text-[#043d27]"
         >
           Contact Us via WhatsApp
+        </a>
+        <span>•</span>
+        <a
+          href="/admin"
+          className="hover:text-slate-900 transition-colors font-semibold text-slate-600 flex items-center gap-1"
+        >
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+          <span>Admin Portal</span>
         </a>
       </div>
     </footer>

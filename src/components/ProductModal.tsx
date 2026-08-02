@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Product } from '@/types/product';
-import { X, MessageCircle, ShieldCheck, ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
+import { X, MessageCircle, ShieldCheck, ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag } from 'lucide-react';
+import { useCart } from '@/context/CartContext';
 
 interface ProductModalProps {
   product: Product | null;
@@ -10,6 +11,7 @@ interface ProductModalProps {
 }
 
 export const ProductModal: React.FC<ProductModalProps> = ({ product, onClose }) => {
+  const { addToCart } = useCart();
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [orderQty, setOrderQty] = useState(1);
 
@@ -34,13 +36,13 @@ export const ProductModal: React.FC<ProductModalProps> = ({ product, onClose }) 
 
   const totalPrice = product.sellingPrice * orderQty;
 
-  const rawMessage = `Hi Malik Enterprises! I would like to order:
-📦 Product: ${product.title}
-🏷️ Item ID: #${product.id}
-🔢 Quantity: ${orderQty}
-💰 Total Price: ₹${totalPrice.toLocaleString('en-IN')} (₹${product.sellingPrice.toLocaleString('en-IN')} x ${orderQty})`;
-
-  const whatsappUrl = `https://wa.me/917078523738?text=${encodeURIComponent(rawMessage)}`;
+  const handleAddToCart = () => {
+    if (isSold) return;
+    const added = addToCart(product, orderQty);
+    if (added) {
+      onClose();
+    }
+  };
 
   const images =
     product.images.length > 0
@@ -203,26 +205,25 @@ export const ProductModal: React.FC<ProductModalProps> = ({ product, onClose }) 
               </div>
             )}
 
-            <a
-              href={isSold ? undefined : whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={handleAddToCart}
+              disabled={isSold}
               className={`w-full py-3 px-4 rounded text-sm font-bold flex items-center justify-center gap-2 transition-all ${
                 isSold
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                   : 'bg-[#043d27] hover:bg-[#002b1b] text-white shadow-md'
               }`}
             >
-              <MessageCircle className="w-5 h-5 fill-current" />
+              <ShoppingBag className="w-5 h-5 shrink-0" />
               <span>
                 {isSold
                   ? 'Currently Unavailable'
-                  : `Order ${orderQty} ${orderQty > 1 ? 'Items' : 'Item'} via WhatsApp • ₹${totalPrice.toLocaleString('en-IN')}`}
+                  : `Add ${orderQty} ${orderQty > 1 ? 'Items' : 'Item'} to Cart • ₹${totalPrice.toLocaleString('en-IN')}`}
               </span>
-            </a>
+            </button>
 
             <div className="text-center text-[11px] text-slate-500 pt-1">
-              <span>Direct connect with Malik Enterprises</span>
+              <span>Direct connect & delivery via Malik Enterprises</span>
             </div>
           </div>
         </div>

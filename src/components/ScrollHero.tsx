@@ -8,51 +8,69 @@ const TOTAL_FRAMES = 38;
 export const ScrollHero: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [images, setImages] = useState<HTMLImageElement[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const imagesRef = useRef<HTMLImageElement[]>([]);
   const [scrollProgress, setScrollProgress] = useState(0);
 
-  // Preload all 38 image frames into memory
+  // Preload frames and handle canvas resizing
   useEffect(() => {
-    let loadedCount = 0;
-    const imgArray: HTMLImageElement[] = [];
+    const loadedImages: HTMLImageElement[] = [];
+    imagesRef.current = loadedImages;
 
+    const resizeCanvas = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const dpr = window.devicePixelRatio || 1;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (width > 0 && height > 0) {
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+      }
+    };
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Preload frames
     for (let i = 1; i <= TOTAL_FRAMES; i++) {
       const frameNum = String(i).padStart(3, '0');
       const img = new Image();
       img.src = `/frames/ezgif-frame-${frameNum}.jpg`;
 
       img.onload = () => {
-        loadedCount++;
-        if (loadedCount === TOTAL_FRAMES) {
-          setIsLoaded(true);
+        if (i === 1) {
+          drawFrame(0);
         }
       };
 
-      imgArray.push(img);
+      loadedImages.push(img);
     }
 
-    setImages(imgArray);
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+    };
   }, []);
 
-  // Draw full-bleed canvas using object-cover scaling math
   const drawFrame = (frameIndex: number) => {
     const canvas = canvasRef.current;
-    if (!canvas || images.length === 0) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const img = images[frameIndex];
-    if (!img || !img.complete) return;
+    const images = imagesRef.current;
+    if (!images || images.length === 0) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const img = images[frameIndex] || images[0];
+    if (!img || !img.complete || img.naturalWidth === 0) return;
+
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
+    if (width === 0 || height === 0) return;
 
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    const dpr = window.devicePixelRatio || 1;
+
+    ctx.save();
     ctx.scale(dpr, dpr);
-
     ctx.clearRect(0, 0, width, height);
 
     const imgRatio = img.naturalWidth / img.naturalHeight;
@@ -73,9 +91,10 @@ export const ScrollHero: React.FC = () => {
     const offsetY = (height - drawHeight) / 2;
 
     ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+    ctx.restore();
   };
 
-  // Scroll listener to compute progress and trigger frame drawing
+  // Scroll handler with RAF throttle
   useEffect(() => {
     let animationFrameId: number;
 
@@ -103,67 +122,67 @@ export const ScrollHero: React.FC = () => {
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('resize', handleScroll);
-
     handleScroll();
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('resize', handleScroll);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [images, isLoaded]);
+  }, []);
 
-  useEffect(() => {
-    if (isLoaded) {
-      drawFrame(0);
+  const textOpacity = Math.max(1 - scrollProgress / 0.35, 0);
+  const textTransformY = -scrollProgress * 80;
+
+  const scrollToCatalog = () => {
+    const catalogEl = document.getElementById('catalog');
+    if (catalogEl) {
+      catalogEl.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: window.innerHeight * 1.8, behavior: 'smooth' });
     }
-  }, [isLoaded]);
-
-  // Text Animation Math: Fade out slowly as user scrolls past 30% (0.3)
-  const textOpacity = Math.max(1 - scrollProgress / 0.3, 0);
-  const textTransformY = -scrollProgress * 60;
+  };
 
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full h-[280vh] bg-black"
-    >
+    <div ref={containerRef} className="relative w-full h-[250vh] bg-black">
       {/* Sticky Full-Screen Canvas Viewport */}
       <div className="sticky top-0 w-full h-screen overflow-hidden flex flex-col justify-between items-center bg-black">
-        {/* Full Bleed HTML5 Canvas */}
+        {/* Canvas */}
         <canvas
           ref={canvasRef}
           className="absolute inset-0 w-full h-full object-cover z-10"
         />
 
         {/* Ambient Overlay Vignette */}
-        <div className="absolute inset-0 z-15 pointer-events-none bg-radial from-transparent via-black/10 to-black/50" />
+        <div className="absolute inset-0 z-15 pointer-events-none bg-[#043d27]/10 bg-radial from-transparent via-black/20 to-black/70" />
 
-        {/* TOP SHIFTED HEADING OVERLAY - Positioned higher so it doesn't overlap product */}
+        {/* HEADING OVERLAY */}
         <div
-          className="relative z-20 pt-16 sm:pt-20 lg:pt-24 px-6 flex flex-col items-center text-center pointer-events-none transition-all duration-150 ease-out"
+          className="relative z-20 pt-16 sm:pt-24 px-6 flex flex-col items-center text-center transition-all duration-150 ease-out pointer-events-none"
           style={{
             opacity: textOpacity,
             transform: `translateY(${textTransformY}px)`,
           }}
         >
+          <div className="inline-block px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-bold uppercase tracking-widest mb-3 backdrop-blur-md">
+            Quality Refurbished Marketplace
+          </div>
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white drop-shadow-2xl leading-tight">
             Malik Enterprises
           </h1>
 
-          <p className="mt-2 text-sm sm:text-base text-slate-200 font-medium max-w-md leading-relaxed drop-shadow">
-            Quality Refurbished Goods, Unbeatable Prices
+          <p className="mt-3 text-sm sm:text-base text-slate-200 font-medium max-w-md leading-relaxed drop-shadow">
+            Shop pre-owned chairs, electronics, and accessories at unbeatable prices with direct WhatsApp delivery.
           </p>
         </div>
 
-        {/* BOTTOM SCROLL INDICATOR PILL */}
+        {/* BOTTOM SCROLL INDICATOR BUTTON */}
         <div
-          className="relative z-20 pb-10 pointer-events-none transition-opacity duration-150"
+          className="relative z-20 pb-10 transition-opacity duration-150 cursor-pointer"
           style={{ opacity: textOpacity }}
+          onClick={scrollToCatalog}
         >
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-200 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full border border-white/20 shadow-lg animate-bounce">
-            <span>Scroll down to explore product line</span>
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-100 bg-white/15 backdrop-blur-md px-5 py-2.5 rounded-full border border-white/30 shadow-xl hover:bg-white/25 transition-all animate-bounce">
+            <span>Scroll or Click to Explore Items</span>
             <ChevronDown className="w-4 h-4 text-emerald-400" />
           </div>
         </div>

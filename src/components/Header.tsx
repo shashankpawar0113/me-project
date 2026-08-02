@@ -1,10 +1,29 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Menu, Search, X, Tag, ShieldCheck, PhoneCall, Settings } from 'lucide-react';
+import {
+  Menu,
+  Search,
+  X,
+  Tag,
+  ShieldCheck,
+  PhoneCall,
+  Settings,
+  ShoppingBag,
+  User as UserIcon,
+  LogOut,
+  Store,
+  LayoutGrid,
+  Receipt,
+} from 'lucide-react';
+import { useCart } from '@/context/CartContext';
+import { useAuth } from '@/context/AuthContext';
+import { ActiveTab } from '@/types/product';
 
 interface HeaderProps {
   categories?: string[];
+  activeTab?: ActiveTab;
+  onTabSelect?: (tab: ActiveTab) => void;
   onSearchClick?: () => void;
   onCategorySelect?: (category: string) => void;
   onOpenOwnerModal?: () => void;
@@ -12,11 +31,22 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   categories = ['All', 'Furniture', 'Electronics', 'Accessories'],
+  activeTab = 'shop',
+  onTabSelect,
   onSearchClick,
   onCategorySelect,
   onOpenOwnerModal,
 }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const { openCart, totalItemsCount } = useCart();
+  const { currentUser, userData, isAdmin, openAuthModal, logOut } = useAuth();
+
+  const scrollToCatalog = () => {
+    const el = document.getElementById('catalog');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   return (
     <>
@@ -32,20 +62,77 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {/* Center: Malik Enterprises Brand Title */}
-          <h1 className="font-bold text-lg text-slate-900 tracking-tight text-center">
-            Malik Enterprises
-          </h1>
-
-          {/* Right: Search Icon */}
           <button
-            onClick={onSearchClick}
-            className="p-2 -mr-2 text-slate-800 hover:text-slate-900 transition-colors"
-            title="Search Catalog"
+            onClick={() => {
+              if (onTabSelect) onTabSelect('shop');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="font-bold text-lg text-slate-900 tracking-tight text-center hover:opacity-80 transition-opacity"
           >
-            <Search className="w-5 h-5 stroke-[2]" />
+            Malik Enterprises
           </button>
+
+          {/* Right: Search, Cart, Admin & Account Icons */}
+          <div className="flex items-center gap-1 -mr-2">
+            <button
+              onClick={onSearchClick}
+              className="p-2 text-slate-800 hover:text-slate-900 transition-colors"
+              title="Search Catalog"
+            >
+              <Search className="w-5 h-5 stroke-[2]" />
+            </button>
+
+            {/* SHOPPING CART BUTTON WITH BADGE */}
+            <button
+              onClick={openCart}
+              className="p-2 text-slate-800 hover:text-slate-900 transition-colors relative"
+              title="Shopping Cart"
+            >
+              <ShoppingBag className="w-5 h-5 stroke-[2]" />
+              {totalItemsCount > 0 && (
+                <span className="absolute top-1 right-1 bg-[#043d27] text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+                  {totalItemsCount}
+                </span>
+              )}
+            </button>
+
+            {/* DEDICATED ADMIN PORTAL LINK */}
+            <a
+              href="/admin"
+              className="p-2 text-[#043d27] hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1"
+              title="Admin Portal"
+            >
+              <ShieldCheck className="w-5 h-5 stroke-[2]" />
+              <span className="hidden lg:inline text-xs font-bold">Admin</span>
+            </a>
+
+            {/* USER PROFILE / SIGN IN BUTTON */}
+            {currentUser ? (
+              <button
+                onClick={() => {
+                  if (onTabSelect) onTabSelect('account');
+                  scrollToCatalog();
+                }}
+                className="hidden sm:flex items-center gap-1.5 ml-1 px-2.5 py-1 rounded-full bg-emerald-50 text-[#043d27] border border-emerald-200 font-bold text-xs hover:bg-emerald-100 transition-colors"
+                title="Account Settings"
+              >
+                <UserIcon className="w-3.5 h-3.5" />
+                <span className="max-w-[90px] truncate">
+                  {userData?.name?.split(' ')[0] || 'User'}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={() => openAuthModal('signin')}
+                className="ml-1 px-3 py-1.5 rounded-lg bg-[#043d27] text-white font-bold text-xs hover:bg-[#002b1b] transition-colors"
+              >
+                Sign In
+              </button>
+            )}
+          </div>
         </div>
       </header>
+
 
       {/* Slide-out Mobile Navigation Drawer */}
       {drawerOpen && (
@@ -55,19 +142,92 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => setDrawerOpen(false)}
           />
 
-          <div className="relative w-4/5 max-w-xs bg-white h-full shadow-2xl flex flex-col justify-between p-6 z-10">
+          <div className="relative w-4/5 max-w-xs bg-white h-full shadow-2xl flex flex-col justify-between p-6 z-10 overflow-y-auto">
             <div className="space-y-6">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                 <span className="font-bold text-base text-slate-900">Navigation</span>
-                <button onClick={() => setDrawerOpen(false)} className="p-1 text-slate-400 hover:text-slate-700">
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-700"
+                >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* DYNAMIC CATEGORIES LIST INCLUDING CUSTOM OWNER CATEGORIES */}
-              <div className="space-y-3 text-sm">
+              {/* MAIN STORE SECTIONS */}
+              <div className="space-y-2 text-xs font-bold">
+                <div className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-2">
+                  Main Views
+                </div>
+                <button
+                  onClick={() => {
+                    if (onTabSelect) onTabSelect('shop');
+                    setDrawerOpen(false);
+                    scrollToCatalog();
+                  }}
+                  className={`w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 transition-colors ${
+                    activeTab === 'shop'
+                      ? 'bg-[#043d27] text-white'
+                      : 'bg-slate-50 text-slate-800 hover:bg-slate-100'
+                  }`}
+                >
+                  <Store className="w-4 h-4" />
+                  <span>Store Catalog</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (onTabSelect) onTabSelect('categories');
+                    setDrawerOpen(false);
+                    scrollToCatalog();
+                  }}
+                  className={`w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 transition-colors ${
+                    activeTab === 'categories'
+                      ? 'bg-[#043d27] text-white'
+                      : 'bg-slate-50 text-slate-800 hover:bg-slate-100'
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  <span>Categories</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (onTabSelect) onTabSelect('orders');
+                    setDrawerOpen(false);
+                    scrollToCatalog();
+                  }}
+                  className={`w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 transition-colors ${
+                    activeTab === 'orders'
+                      ? 'bg-[#043d27] text-white'
+                      : 'bg-slate-50 text-slate-800 hover:bg-slate-100'
+                  }`}
+                >
+                  <Receipt className="w-4 h-4" />
+                  <span>My Orders</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (onTabSelect) onTabSelect('account');
+                    setDrawerOpen(false);
+                    scrollToCatalog();
+                  }}
+                  className={`w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 transition-colors ${
+                    activeTab === 'account'
+                      ? 'bg-[#043d27] text-white'
+                      : 'bg-slate-50 text-slate-800 hover:bg-slate-100'
+                  }`}
+                >
+                  <UserIcon className="w-4 h-4" />
+                  <span>{currentUser ? 'My Profile' : 'Sign In / Account'}</span>
+                </button>
+              </div>
+
+              {/* DYNAMIC CATEGORIES LIST */}
+              <div className="space-y-2 text-xs pt-4 border-t border-slate-100">
                 <div className="font-bold text-xs uppercase tracking-wider text-slate-400">
-                  Product Categories
+                  Quick Category Filter
                 </div>
 
                 {categories.map((cat) => (
@@ -75,17 +235,19 @@ export const Header: React.FC<HeaderProps> = ({
                     key={cat}
                     onClick={() => {
                       if (onCategorySelect) onCategorySelect(cat);
+                      if (onTabSelect) onTabSelect('shop');
                       setDrawerOpen(false);
+                      scrollToCatalog();
                     }}
-                    className="w-full text-left py-2 font-medium text-slate-800 hover:text-emerald-700 flex items-center gap-2"
+                    className="w-full text-left py-1.5 px-2 font-medium text-slate-700 hover:text-emerald-700 flex items-center gap-2"
                   >
-                    <Tag className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <Tag className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
                     <span>{cat === 'All' ? 'All Catalog Items' : cat}</span>
                   </button>
                 ))}
               </div>
 
-              {/* OWNER INVENTORY MANAGEMENT DIRECT ACTION */}
+              {/* OWNER INVENTORY MANAGEMENT */}
               <div className="pt-4 border-t border-slate-100 space-y-2">
                 <div className="font-bold text-xs uppercase tracking-wider text-slate-400">
                   Owner Tools
@@ -95,15 +257,28 @@ export const Header: React.FC<HeaderProps> = ({
                     if (onOpenOwnerModal) onOpenOwnerModal();
                     setDrawerOpen(false);
                   }}
-                  className="w-full text-left py-2.5 px-3 rounded bg-emerald-50 text-[#043d27] font-bold text-xs flex items-center gap-2 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                  className="w-full text-left py-2.5 px-3 rounded-lg bg-emerald-50 text-[#043d27] font-bold text-xs flex items-center gap-2 border border-emerald-200 hover:bg-emerald-100 transition-colors"
                 >
                   <Settings className="w-4 h-4 text-[#043d27]" />
                   <span>Manage Catalog / Add Product</span>
                 </button>
               </div>
+
+              {currentUser && (
+                <button
+                  onClick={() => {
+                    logOut();
+                    setDrawerOpen(false);
+                  }}
+                  className="w-full py-2.5 px-3 rounded-lg bg-red-50 text-red-700 font-bold text-xs flex items-center justify-center gap-2 border border-red-200 hover:bg-red-100 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out</span>
+                </button>
+              )}
             </div>
 
-            <div className="pt-6 border-t border-slate-100 space-y-3">
+            <div className="pt-6 border-t border-slate-100 space-y-3 mt-6">
               <div className="flex items-center gap-2 text-xs text-slate-600">
                 <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>Quality Refurbished Guarantee</span>
