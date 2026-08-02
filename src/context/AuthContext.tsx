@@ -9,6 +9,8 @@ import {
   signOut,
   updateProfile,
   sendPasswordResetEmail,
+  GoogleAuthProvider,
+  signInWithPopup,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
@@ -36,6 +38,7 @@ interface AuthContextType {
   closeAuthModal: () => void;
   signUp: (email: string, pass: string, name: string, phone: string) => Promise<void>;
   signIn: (email: string, pass: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   logOut: () => Promise<void>;
 }
@@ -162,20 +165,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       try {
+        // Try signing in with Firebase Auth first
         const userCred = await signInWithEmailAndPassword(auth, cleanEmail, pass);
         setCurrentUser(userCred.user);
       } catch (err1) {
         try {
+          // Account doesn't exist yet — create it
           const userCred = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
           setCurrentUser(userCred.user);
           await setDoc(doc(db, 'users', userCred.user.uid), adminProfile);
-        } catch (err2) {
-          // If Firebase Auth is restricted or account exists with another password, grant master session
-          setCurrentUser({
-            uid: 'admin_master_0113',
-            email: ADMIN_EMAIL,
-            displayName: 'Malik Admin',
-          } as User);
+        } catch (err2: any) {
+          // Account exists but password doesn't match the admin password constant.
+          // This means the Firebase Auth password was changed. Throw a clear error.
+          if (err2.code === 'auth/email-already-in-use') {
+            throw new Error(
+              'Admin account exists in Firebase but the password does not match. Please use the "Forgot Password" option to reset it, then update ADMIN_PASSWORD in the code.'
+            );
+          }
+          throw new Error('Failed to authenticate admin account. ' + (err2.message || ''));
         }
       }
 
@@ -191,27 +198,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await signInWithEmailAndPassword(auth, cleanEmail, pass);
     } catch (err: any) {
-      if (err.code === 'auth/user-not-found') {
-        const userCred = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-        const newUserData: UserData = {
-          uid: userCred.user.uid,
-          name: userCred.user.displayName || 'Customer',
-          email: cleanEmail,
-          phone: '',
-          createdAt: new Date().toISOString(),
-          role: 'customer',
-        };
-        await setDoc(doc(db, 'users', userCred.user.uid), newUserData);
-        setUserData(newUserData);
-        closeAuthModal();
-        return;
-      }
-      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        throw new Error(`Incorrect password for ${cleanEmail}. Please check your password.`);
+      if (
+        err.code === 'auth/user-not-found' ||
+        err.code === 'auth/wrong-password' ||
+        err.code === 'auth/invalid-credential'
+      ) {
+        throw new Error(
+          `No account found for ${cleanEmail}, or the password is incorrect. Please create a new account using the "Create Account" tab.`
+        );
       }
       throw err;
     }
     closeAuthModal();
+  };
+
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      // Try to create user doc in Firestore (non-blocking if rules reject it)
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+
+        if (!userDocSnap.exists()) {
+          const newUserData: UserData = {
+            uid: user.uid,
+            name: user.displayName || 'Google User',
+            email: user.email || '',
+            phone: user.phoneNumber || '',
+            createdAt: new Date().toISOString(),
+            role: user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'customer',
+          };
+          await setDoc(userDocRef, newUserData);
+          setUserData(newUserData);
+        }
+      } catch (firestoreErr) {
+        // Firestore write failed (likely security rules) — still allow sign-in
+        // onAuthStateChanged handler will also try to set user data
+        console.warn('Firestore user doc creation skipped (permissions):', firestoreErr);
+        setUserData({
+          uid: user.uid,
+          name: user.displayName || 'Google User',
+          email: user.email || '',
+          phone: user.phoneNumber || '',
+          createdAt: new Date().toISOString(),
+          role: user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'customer',
+        });
+      }
+
+      closeAuthModal();
+    } catch (err: any) {
+      if (err.code === 'auth/popup-closed-by-user') return;
+      throw new Error(err.message || 'Google Sign-In failed.');
+    }
   };
 
   const resetPassword = async (email: string) => {
@@ -246,6 +288,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         openAuthModal,
         closeAuthModal,
         signUp,
+        signInWithGoogle,
         signIn,
         resetPassword,
         logOut,

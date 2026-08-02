@@ -2,8 +2,17 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Product } from '@/types/product';
-
-const LOCAL_STORAGE_KEY = 'malik_ethos_inventory_v3';
+import { db } from '@/lib/firebase';
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  query,
+  orderBy,
+} from 'firebase/firestore';
 
 interface InventoryContextType {
   products: Product[];
@@ -18,78 +27,53 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [products, setProducts] = useState<Product[]>([]);
-  const [isHydrated, setIsHydrated] = useState(false);
 
-  // Fetch products from server API on mount
-  const refreshProducts = async () => {
-    try {
-      const res = await fetch('/api/products');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setProducts(data);
-          try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
-          } catch (e) {
-            console.error('LocalStorage write error', e);
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load inventory from API, attempting localStorage fallback', e);
-      try {
-        const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            setProducts(parsed);
-          }
-        }
-      } catch (err) {
-        console.error('LocalStorage read error', err);
-      }
-    } finally {
-      setIsHydrated(true);
-    }
-  };
-
+  // Real-time listener on Firestore 'products' collection
   useEffect(() => {
-    refreshProducts();
+    const productsRef = collection(db, 'products');
+    const q = query(productsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetched: Product[] = [];
+        snapshot.forEach((docSnap) => {
+          fetched.push({ id: docSnap.id, ...docSnap.data() } as Product);
+        });
+        setProducts(fetched);
+      },
+      (error) => {
+        console.error('Firestore products listener error:', error);
+      }
+    );
+
+    return () => unsubscribe();
   }, []);
 
+  const refreshProducts = async () => {
+    // With onSnapshot, data is always live — this is a no-op for compatibility
+  };
+
   const addProduct = async (newProdData: Omit<Product, 'id' | 'createdAt'> & { id?: string }) => {
-    // Immediate optimistic update for fast UX
-    const nextIdNumber =
-      products.reduce((max, p) => {
-        const num = parseInt(p.id.replace(/\D/g, ''), 10);
-        return !isNaN(num) && num > max ? num : max;
-      }, 100) + 1;
-
-    const tempId = newProdData.id?.trim() || `PRD-${nextIdNumber}`;
-    const optimisticProduct: Product = {
-      ...newProdData,
-      id: tempId,
-      createdAt: new Date().toISOString(),
-    };
-
-    setProducts((prev) => [optimisticProduct, ...prev]);
-
     try {
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProdData),
-      });
+      const productToAdd = {
+        title: newProdData.title,
+        sellingPrice: newProdData.sellingPrice,
+        mrp: newProdData.mrp,
+        condition: newProdData.condition,
+        status: newProdData.status || 'Available',
+        category: newProdData.category,
+        images: newProdData.images || [],
+        description: newProdData.description || '',
+        quantity: newProdData.quantity || 1,
+        createdAt: new Date().toISOString(),
+      };
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) {
-          setProducts(data.products);
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data.products));
-        }
-      }
+      await addDoc(collection(db, 'products'), productToAdd);
+      // onSnapshot will automatically update the local state
     } catch (e) {
-      console.error('Failed to sync added product with server', e);
+      console.error('Failed to add product to Firestore:', e);
+      throw e;
     }
   };
 
@@ -98,53 +82,27 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!target) return;
     const nextStatus = target.status === 'Available' ? 'Sold' : 'Available';
 
-    // Immediate optimistic update
-    setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status: nextStatus as 'Available' | 'Sold' } : p))
-    );
-
     try {
-      const res = await fetch('/api/products', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status: nextStatus }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) {
-          setProducts(data.products);
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data.products));
-        }
-      }
+      await updateDoc(doc(db, 'products', id), { status: nextStatus });
+      // onSnapshot will automatically update the local state
     } catch (e) {
-      console.error('Failed to sync product status with server', e);
+      console.error('Failed to update product status in Firestore:', e);
+      throw e;
     }
   };
 
   const deleteProduct = async (id: string) => {
-    // Immediate optimistic update
-    setProducts((prev) => prev.filter((p) => p.id !== id));
-
     try {
-      const res = await fetch(`/api/products?id=${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) {
-          setProducts(data.products);
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data.products));
-        }
-      }
+      await deleteDoc(doc(db, 'products', id));
+      // onSnapshot will automatically update the local state
     } catch (e) {
-      console.error('Failed to delete product on server', e);
+      console.error('Failed to delete product from Firestore:', e);
+      throw e;
     }
   };
 
   const resetToSeedData = async () => {
-    await refreshProducts();
+    // No-op — real-time data is always up to date
   };
 
   return (
