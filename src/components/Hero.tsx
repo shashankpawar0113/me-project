@@ -19,7 +19,7 @@ export const Hero: React.FC = () => {
         </h2>
         
         <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-normal px-2">
-          Shop pre-owned electronics, furniture, and more. Direct delivery, order via WhatsApp.
+          Shop chairs, electronics, and accessories at unbeatable prices with direct WhatsApp delivery.
         </p>
       </div>
     </div>

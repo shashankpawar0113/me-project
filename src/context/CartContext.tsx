@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Product } from '@/types/product';
 import { useAuth } from '@/context/AuthContext';
-import { doc, setDoc, getDoc, collection, addDoc, getDocs, query, orderBy } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, addDoc, getDocs, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export interface CartItem {
@@ -19,6 +19,7 @@ export interface OrderRecord {
   status: 'Processing' | 'Confirmed' | 'Dispatched' | 'Delivered' | 'Cancelled';
   shippingAddress: string;
   phone: string;
+  email?: string;
   createdAt: string;
   whatsappUrl?: string;
 }
@@ -32,7 +33,7 @@ interface CartContextType {
   removeFromCart: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
   clearCart: () => void;
-  checkoutOrder: (shippingAddress: string, phone: string) => Promise<OrderRecord | null>;
+  checkoutOrder: (shippingAddress: string, phone: string, customerName?: string, customerEmail?: string) => Promise<OrderRecord | null>;
   orders: OrderRecord[];
   loadingOrders: boolean;
   refreshOrders: () => Promise<void>;
@@ -43,7 +44,7 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, userData, openAuthModal } = useAuth();
+  const { currentUser, userData } = useAuth();
 
   const [items, setItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -53,7 +54,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const openCart = () => setIsCartOpen(true);
   const closeCart = () => setIsCartOpen(false);
 
-  // Sync cart from Firestore or localStorage when user changes
+  // Sync cart from Firestore or localStorage
   useEffect(() => {
     const loadCart = async () => {
       if (currentUser) {
@@ -100,39 +101,55 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Fetch orders for active logged in user
-  const refreshOrders = async () => {
+  // Real-time listener for customer order status changes
+  useEffect(() => {
     if (!currentUser) {
       setOrders([]);
+      setLoadingOrders(false);
       return;
     }
+
     setLoadingOrders(true);
-    try {
-      const ordersColRef = collection(db, 'users', currentUser.uid, 'orders');
-      const q = query(ordersColRef, orderBy('createdAt', 'desc'));
-      const querySnap = await getDocs(q);
-      const fetchedOrders: OrderRecord[] = [];
-      querySnap.forEach((docSnap) => {
-        fetchedOrders.push({ id: docSnap.id, ...docSnap.data() } as OrderRecord);
-      });
-      setOrders(fetchedOrders);
-    } catch (e) {
-      console.error('Failed to fetch user orders from Firestore:', e);
-    } finally {
-      setLoadingOrders(false);
-    }
+    const globalRef = collection(db, 'orders');
+    const q = query(globalRef, orderBy('createdAt', 'desc'));
+    const userEmailLower = (userData?.email || currentUser.email || '').toLowerCase();
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetchedOrders: OrderRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as OrderRecord;
+          if (
+            data.userId === currentUser.uid ||
+            (userEmailLower && data.email?.toLowerCase() === userEmailLower)
+          ) {
+            fetchedOrders.push({ ...data, id: data.id || docSnap.id });
+          }
+        });
+
+        const map = new Map<string, OrderRecord>();
+        fetchedOrders.forEach((o) => map.set(o.id, o));
+        const sorted = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setOrders(sorted);
+        setLoadingOrders(false);
+      },
+      (error) => {
+        console.warn('Real-time order listener error:', error);
+        setLoadingOrders(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUser, userData]);
+
+  const refreshOrders = async () => {
+    // Handled in real-time via onSnapshot
   };
 
-  useEffect(() => {
-    refreshOrders();
-  }, [currentUser]);
-
   const addToCart = (product: Product, quantity: number = 1): boolean => {
-    if (!currentUser) {
-      openAuthModal('signin');
-      return false;
-    }
-
     const existingIdx = items.findIndex((i) => i.product.id === product.id);
     let updated: CartItem[];
 
@@ -169,10 +186,18 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     saveCartToStorage([]);
   };
 
-  const checkoutOrder = async (shippingAddress: string, phone: string): Promise<OrderRecord | null> => {
-    if (!currentUser || items.length === 0) return null;
+  const checkoutOrder = async (
+    shippingAddress: string,
+    phone: string,
+    customerName?: string,
+    customerEmail?: string
+  ): Promise<OrderRecord | null> => {
+    if (items.length === 0) return null;
 
     const totalAmount = items.reduce((sum, item) => sum + item.product.sellingPrice * item.quantity, 0);
+    const displayName = customerName || userData?.name || currentUser?.displayName || 'Valued Customer';
+    const displayPhone = phone || userData?.phone || '';
+    const displayEmail = customerEmail || userData?.email || currentUser?.email || '';
 
     // Build readable WhatsApp message
     const itemDetailsText = items
@@ -184,8 +209,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const message = `Hi Malik Enterprises! I would like to place an order:
 
-👤 Customer: ${userData?.name || currentUser.displayName || 'Customer'}
-📞 Phone: ${phone || userData?.phone || ''}
+👤 Customer: ${displayName}
+✉️ Email: ${displayEmail || 'Not specified'}
+📞 Phone: ${displayPhone}
 📍 Address: ${shippingAddress}
 
 📦 Ordered Items:
@@ -196,50 +222,50 @@ ${itemDetailsText}
 
     const whatsappUrl = `https://wa.me/917078523738?text=${encodeURIComponent(message)}`;
 
-    const orderData: Omit<OrderRecord, 'id'> = {
-      userId: currentUser.uid,
-      items,
+    const newOrderId = 'ORD-' + Date.now();
+    const orderData: OrderRecord = {
+      id: newOrderId,
+      userId: currentUser?.uid || 'guest_' + Date.now(),
+      items: [...items],
       totalAmount,
       status: 'Processing',
       shippingAddress,
-      phone: phone || userData?.phone || '',
+      phone: displayPhone,
+      email: displayEmail,
       createdAt: new Date().toISOString(),
       whatsappUrl,
     };
 
     try {
-      // 1. Save into main orders collection
-      const mainOrdersRef = collection(db, 'orders');
-      const docRef = await addDoc(mainOrdersRef, orderData);
+      // Save to main orders collection with explicit order ID
+      await setDoc(doc(db, 'orders', newOrderId), orderData);
 
-      // 2. Save into user's orders subcollection
-      const userOrdersRef = collection(db, 'users', currentUser.uid, 'orders');
-      await setDoc(doc(db, 'users', currentUser.uid, 'orders', docRef.id), {
-        ...orderData,
-        id: docRef.id,
-      });
-
-      const finalOrderRecord: OrderRecord = { id: docRef.id, ...orderData };
-
-      // Clear cart
-      clearCart();
-      closeCart();
-
-      // Refresh local orders list
-      setOrders((prev) => [finalOrderRecord, ...prev]);
-
-      // Open WhatsApp for user confirmation
-      window.open(whatsappUrl, '_blank');
-
-      return finalOrderRecord;
+      // Save to user's orders subcollection if user exists
+      if (currentUser) {
+        try {
+          await setDoc(doc(db, 'users', currentUser.uid, 'orders', newOrderId), orderData);
+        } catch (e) {}
+      }
     } catch (e) {
-      console.error('Error recording order to Firestore:', e);
-      // Even if Firestore write fails, launch WhatsApp so order isn't lost
-      window.open(whatsappUrl, '_blank');
-      clearCart();
-      closeCart();
-      return null;
+      console.warn('Firestore order record skipped (non-blocking for WhatsApp):', e);
     }
+
+    // Save to local customer orders storage
+    try {
+      const savedLocal = localStorage.getItem('malik_customer_orders_v1');
+      const existing: OrderRecord[] = savedLocal ? JSON.parse(savedLocal) : [];
+      localStorage.setItem('malik_customer_orders_v1', JSON.stringify([orderData, ...existing]));
+    } catch (e) {}
+
+    // Clear cart and update local order state
+    clearCart();
+    closeCart();
+    setOrders((prev) => [orderData, ...prev]);
+
+    // Open WhatsApp for user confirmation
+    window.open(whatsappUrl, '_blank');
+
+    return orderData;
   };
 
   const totalItemsCount = items.reduce((sum, item) => sum + item.quantity, 0);

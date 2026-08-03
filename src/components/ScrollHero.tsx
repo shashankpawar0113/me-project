@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
-const TOTAL_FRAMES = 38;
+const TOTAL_FRAMES = 117;
 
 export const ScrollHero: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -19,7 +19,7 @@ export const ScrollHero: React.FC = () => {
     const resizeCanvas = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.max(window.devicePixelRatio || 1, 2);
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width > 0 && height > 0) {
@@ -31,11 +31,11 @@ export const ScrollHero: React.FC = () => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Preload frames
+    // Preload 117 high-res original frames
     for (let i = 1; i <= TOTAL_FRAMES; i++) {
-      const frameNum = String(i).padStart(3, '0');
+      const frameNum = String(i).padStart(4, '0');
       const img = new Image();
-      img.src = `/frames/ezgif-frame-${frameNum}.jpg`;
+      img.src = `/frames/${frameNum}.jpg`;
 
       img.onload = () => {
         if (i === 1) {
@@ -67,10 +67,12 @@ export const ScrollHero: React.FC = () => {
     const height = canvas.clientHeight;
     if (width === 0 || height === 0) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.max(window.devicePixelRatio || 1, 2);
 
     ctx.save();
     ctx.scale(dpr, dpr);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.clearRect(0, 0, width, height);
 
     const imgRatio = img.naturalWidth / img.naturalHeight;
@@ -163,15 +165,12 @@ export const ScrollHero: React.FC = () => {
             transform: `translateY(${textTransformY}px)`,
           }}
         >
-          <div className="inline-block px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-bold uppercase tracking-widest mb-3 backdrop-blur-md">
-            Quality Refurbished Marketplace
-          </div>
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white drop-shadow-2xl leading-tight">
             Malik Enterprises
           </h1>
 
           <p className="mt-3 text-sm sm:text-base text-slate-200 font-medium max-w-md leading-relaxed drop-shadow">
-            Shop pre-owned chairs, electronics, and accessories at unbeatable prices with direct WhatsApp delivery.
+            Shop chairs, electronics, and accessories at unbeatable prices with direct WhatsApp delivery.
           </p>
         </div>
 

@@ -38,8 +38,17 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenOwnerModal,
 }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isDrawerClosing, setIsDrawerClosing] = useState(false);
   const { openCart, totalItemsCount } = useCart();
   const { currentUser, userData, isAdmin, openAuthModal, logOut } = useAuth();
+
+  const closeNavDrawer = () => {
+    setIsDrawerClosing(true);
+    setTimeout(() => {
+      setIsDrawerClosing(false);
+      setDrawerOpen(false);
+    }, 240);
+  };
 
   const scrollToCatalog = () => {
     const el = document.getElementById('catalog');
@@ -106,19 +115,19 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden lg:inline text-xs font-bold">Admin</span>
             </a>
 
-            {/* USER PROFILE / SIGN IN BUTTON */}
+            {/* CUSTOMER SIGN IN / PROFILE BUTTON */}
             {currentUser ? (
               <button
                 onClick={() => {
                   if (onTabSelect) onTabSelect('account');
                   scrollToCatalog();
                 }}
-                className="hidden sm:flex items-center gap-1.5 ml-1 px-2.5 py-1 rounded-full bg-emerald-50 text-[#043d27] border border-emerald-200 font-bold text-xs hover:bg-emerald-100 transition-colors"
+                className="flex items-center gap-1.5 ml-1 px-2.5 py-1 rounded-full bg-emerald-50 text-[#043d27] border border-emerald-200 font-bold text-xs hover:bg-emerald-100 transition-colors"
                 title="Account Settings"
               >
                 <UserIcon className="w-3.5 h-3.5" />
                 <span className="max-w-[90px] truncate">
-                  {userData?.name?.split(' ')[0] || 'User'}
+                  {userData?.name?.split(' ')[0] || currentUser.email?.split('@')[0] || 'Account'}
                 </span>
               </button>
             ) : (
@@ -135,19 +144,25 @@ export const Header: React.FC<HeaderProps> = ({
 
 
       {/* Slide-out Mobile Navigation Drawer */}
-      {drawerOpen && (
+      {(drawerOpen || isDrawerClosing) && (
         <div className="fixed inset-0 z-50 flex">
           <div
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
-            onClick={() => setDrawerOpen(false)}
+            className={`fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity duration-300 ${
+              isDrawerClosing ? 'opacity-0' : 'animate-fadeIn'
+            }`}
+            onClick={closeNavDrawer}
           />
 
-          <div className="relative w-4/5 max-w-xs bg-white h-full shadow-2xl flex flex-col justify-between p-6 z-10 overflow-y-auto">
+          <div
+            className={`relative w-4/5 max-w-xs bg-white h-full shadow-2xl flex flex-col justify-between p-6 z-10 overflow-y-auto ${
+              isDrawerClosing ? 'animate-slideFromLeftOut' : 'animate-slideFromLeft'
+            }`}
+          >
             <div className="space-y-6">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                 <span className="font-bold text-base text-slate-900">Navigation</span>
                 <button
-                  onClick={() => setDrawerOpen(false)}
+                  onClick={closeNavDrawer}
                   className="p-1 text-slate-400 hover:text-slate-700"
                 >
                   <X className="w-5 h-5" />
@@ -162,7 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={() => {
                     if (onTabSelect) onTabSelect('shop');
-                    setDrawerOpen(false);
+                    closeNavDrawer();
                     scrollToCatalog();
                   }}
                   className={`w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 transition-colors ${
@@ -178,7 +193,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={() => {
                     if (onTabSelect) onTabSelect('categories');
-                    setDrawerOpen(false);
+                    closeNavDrawer();
                     scrollToCatalog();
                   }}
                   className={`w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 transition-colors ${
@@ -194,7 +209,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={() => {
                     if (onTabSelect) onTabSelect('orders');
-                    setDrawerOpen(false);
+                    closeNavDrawer();
                     scrollToCatalog();
                   }}
                   className={`w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 transition-colors ${
@@ -209,8 +224,12 @@ export const Header: React.FC<HeaderProps> = ({
 
                 <button
                   onClick={() => {
-                    if (onTabSelect) onTabSelect('account');
-                    setDrawerOpen(false);
+                    if (currentUser) {
+                      if (onTabSelect) onTabSelect('account');
+                    } else {
+                      openAuthModal('signin');
+                    }
+                    closeNavDrawer();
                     scrollToCatalog();
                   }}
                   className={`w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 transition-colors ${
@@ -220,8 +239,16 @@ export const Header: React.FC<HeaderProps> = ({
                   }`}
                 >
                   <UserIcon className="w-4 h-4" />
-                  <span>{currentUser ? 'My Profile' : 'Sign In / Account'}</span>
+                  <span>{currentUser ? 'My Profile' : 'Sign In with Email'}</span>
                 </button>
+
+                <a
+                  href="/admin"
+                  className="w-full text-left py-2.5 px-3 rounded-lg flex items-center gap-2.5 bg-emerald-50 text-[#043d27] font-bold transition-colors border border-emerald-200"
+                >
+                  <ShieldCheck className="w-4 h-4 text-[#043d27]" />
+                  <span>Admin Portal</span>
+                </a>
               </div>
 
               {/* DYNAMIC CATEGORIES LIST */}
@@ -236,7 +263,7 @@ export const Header: React.FC<HeaderProps> = ({
                     onClick={() => {
                       if (onCategorySelect) onCategorySelect(cat);
                       if (onTabSelect) onTabSelect('shop');
-                      setDrawerOpen(false);
+                      closeNavDrawer();
                       scrollToCatalog();
                     }}
                     className="w-full text-left py-1.5 px-2 font-medium text-slate-700 hover:text-emerald-700 flex items-center gap-2"
@@ -255,7 +282,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={() => {
                     if (onOpenOwnerModal) onOpenOwnerModal();
-                    setDrawerOpen(false);
+                    closeNavDrawer();
                   }}
                   className="w-full text-left py-2.5 px-3 rounded-lg bg-emerald-50 text-[#043d27] font-bold text-xs flex items-center gap-2 border border-emerald-200 hover:bg-emerald-100 transition-colors"
                 >
@@ -268,7 +295,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={() => {
                     logOut();
-                    setDrawerOpen(false);
+                    closeNavDrawer();
                   }}
                   className="w-full py-2.5 px-3 rounded-lg bg-red-50 text-red-700 font-bold text-xs flex items-center justify-center gap-2 border border-red-200 hover:bg-red-100 transition-colors"
                 >

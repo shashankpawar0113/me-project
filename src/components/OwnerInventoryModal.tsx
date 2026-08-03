@@ -196,7 +196,7 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
     setUploadedImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!customId.trim() || !title.trim() || !sellingPrice || !mrp || !quantity || !description.trim()) {
@@ -220,37 +220,42 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
 
     const parsedQty = parseInt(quantity, 10) || 1;
 
-    addProduct({
-      id: customId.trim() || undefined,
-      title: title.trim(),
-      sellingPrice: parseFloat(sellingPrice),
-      mrp: parseFloat(mrp),
-      quantity: parsedQty,
-      condition,
-      status: parsedQty <= 0 ? 'Sold' : 'Available',
-      category: finalCategory,
-      images: finalImages,
-      description: description.trim(),
-    });
+    try {
+      await addProduct({
+        id: customId.trim() || undefined,
+        title: title.trim(),
+        sellingPrice: parseFloat(sellingPrice),
+        mrp: parseFloat(mrp),
+        quantity: parsedQty,
+        condition,
+        status: parsedQty <= 0 ? 'Sold' : 'Available',
+        category: finalCategory,
+        images: finalImages,
+        description: description.trim(),
+      });
 
-    setSuccessMessage(`Successfully published "${title}" (Qty: ${parsedQty}) under category "${finalCategory}"!`);
+      setSuccessMessage(`Successfully published "${title}" (Qty: ${parsedQty}) under category "${finalCategory}"!`);
 
-    // Reset form fields
-    setCustomId('');
-    setTitle('');
-    setSellingPrice('');
-    setMrp('');
-    setQuantity('1');
-    setDescription('');
-    setUploadedImages([]);
-    setImageUrl('');
-    setCustomCategory('');
-    setCategorySelect('Furniture');
+      // Reset form fields
+      setCustomId('');
+      setTitle('');
+      setSellingPrice('');
+      setMrp('');
+      setQuantity('1');
+      setDescription('');
+      setUploadedImages([]);
+      setImageUrl('');
+      setCustomCategory('');
+      setCategorySelect('Furniture');
 
-    setTimeout(() => {
-      setSuccessMessage('');
-      setActiveTab('list');
-    }, 1500);
+      setTimeout(() => {
+        setSuccessMessage('');
+        setActiveTab('list');
+      }, 1500);
+    } catch (error) {
+      console.error('Failed to add product:', error);
+      alert('Failed to add product. Please check your internet connection and Firestore permissions, then try again.');
+    }
   };
 
   return (

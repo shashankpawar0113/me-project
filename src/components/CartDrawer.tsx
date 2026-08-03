@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
-import { X, ShoppingBag, Trash2, Plus, Minus, ArrowRight, MessageCircle, MapPin, Phone } from 'lucide-react';
+import { X, ShoppingBag, Trash2, Plus, Minus, ArrowRight, MessageCircle, MapPin, Phone, User as UserIcon, Lock } from 'lucide-react';
 
 export const CartDrawer: React.FC = () => {
   const {
@@ -16,22 +16,76 @@ export const CartDrawer: React.FC = () => {
     totalItemsCount,
     totalCartPrice,
   } = useCart();
-  const { userData, currentUser } = useAuth();
+  const { userData, currentUser, openAuthModal } = useAuth();
 
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCheckoutForm, setShowCheckoutForm] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
-  if (!isCartOpen) return null;
+  // Reset closing state when cart opens
+  React.useEffect(() => {
+    if (isCartOpen) {
+      setIsClosing(false);
+      setPhoneError('');
+    }
+  }, [isCartOpen]);
+
+  // Auto-populate user details if signed in
+  React.useEffect(() => {
+    if (userData?.name || currentUser?.displayName) {
+      setName(userData?.name || currentUser?.displayName || '');
+    }
+    if (userData?.email || currentUser?.email) {
+      setEmail(userData?.email || currentUser?.email || '');
+    }
+    if (userData?.phone) {
+      setPhone(userData?.phone || '');
+    }
+  }, [userData, currentUser]);
+
+  if (!isCartOpen && !isClosing) return null;
+
+  const handleAnimatedClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      closeCart();
+    }, 240);
+  };
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPhoneError('');
+
+    if (!currentUser) {
+      openAuthModal('signin');
+      return;
+    }
+
+    const digitsOnly = phone.replace(/\D/g, '');
+    const isValid10Digit =
+      digitsOnly.length === 10 || (digitsOnly.length === 12 && digitsOnly.startsWith('91'));
+
+    if (!isValid10Digit) {
+      setPhoneError('Please enter a valid 10-digit mobile number (e.g. 9876543210)');
+      return;
+    }
+
     if (!address.trim()) return;
 
     setIsSubmitting(true);
     try {
-      await checkoutOrder(address, phone || userData?.phone || '');
+      await checkoutOrder(
+        address,
+        digitsOnly.slice(-10),
+        name || userData?.name || currentUser?.displayName || '',
+        email || userData?.email || currentUser?.email || ''
+      );
     } catch (e) {
       console.error(e);
     } finally {
@@ -40,10 +94,19 @@ export const CartDrawer: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex justify-end">
-      <div className="fixed inset-0" onClick={closeCart} />
+    <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+      <div
+        className={`fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-300 ${
+          isClosing ? 'opacity-0' : 'animate-fadeIn'
+        }`}
+        onClick={handleAnimatedClose}
+      />
 
-      <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col justify-between z-10 animate-slideLeft">
+      <div
+        className={`relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col justify-between z-10 ${
+          isClosing ? 'animate-cartSlideOutRight' : 'animate-cartSlideInRight'
+        }`}
+      >
         {/* HEADER */}
         <div className="p-4 sm:p-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2">
@@ -56,7 +119,7 @@ export const CartDrawer: React.FC = () => {
             </div>
           </div>
           <button
-            onClick={closeCart}
+            onClick={handleAnimatedClose}
             className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -77,7 +140,7 @@ export const CartDrawer: React.FC = () => {
                 </p>
               </div>
               <button
-                onClick={closeCart}
+                onClick={handleAnimatedClose}
                 className="px-5 py-2.5 bg-[#043d27] text-white text-xs font-bold rounded-lg shadow-xs"
               >
                 Explore Catalog
@@ -158,9 +221,33 @@ export const CartDrawer: React.FC = () => {
               </div>
             </div>
 
-            {!showCheckoutForm ? (
+            {!currentUser ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <Lock className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-bold text-xs text-amber-900">Sign In Required to Place Order</h4>
+                    <p className="text-[11px] text-amber-700 mt-0.5">
+                      Please sign in or create a free account to proceed with checkout and track your live order updates.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    closeCart();
+                    openAuthModal('signin');
+                  }}
+                  className="w-full py-3 bg-[#043d27] hover:bg-[#002b1b] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-2 shadow-md transition-all"
+                >
+                  <UserIcon className="w-4 h-4" />
+                  <span>Sign In / Register to Place Order</span>
+                </button>
+              </div>
+            ) : !showCheckoutForm ? (
               <button
                 onClick={() => {
+                  setName(userData?.name || currentUser?.displayName || '');
+                  setEmail(userData?.email || currentUser?.email || '');
                   setPhone(userData?.phone || '');
                   setShowCheckoutForm(true);
                 }}
@@ -171,6 +258,34 @@ export const CartDrawer: React.FC = () => {
               </button>
             ) : (
               <form onSubmit={handleCheckout} className="space-y-3 pt-2 border-t border-slate-200 animate-fadeIn">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Your Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter your full name..."
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#043d27]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Email Address (For Order Tracking)
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="your.email@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#043d27]"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Delivery Address
@@ -190,19 +305,32 @@ export const CartDrawer: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Contact Phone Number
+                    Contact Phone Number (10 digits)
                   </label>
                   <div className="relative">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       type="tel"
                       required
-                      placeholder="+91 98765 43210"
+                      maxLength={13}
+                      placeholder="10-digit mobile number (e.g. 9876543210)"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#043d27]"
+                      onChange={(e) => {
+                        setPhone(e.target.value);
+                        if (phoneError) setPhoneError('');
+                      }}
+                      className={`w-full pl-9 pr-3 py-2 bg-white border rounded-lg text-xs text-slate-900 focus:outline-none ${
+                        phoneError
+                          ? 'border-red-500 focus:border-red-600'
+                          : 'border-slate-300 focus:border-[#043d27]'
+                      }`}
                     />
                   </div>
+                  {phoneError && (
+                    <p className="text-[11px] font-bold text-red-600 mt-1 flex items-center gap-1">
+                      <span>⚠ {phoneError}</span>
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex gap-2 pt-1">
@@ -219,7 +347,7 @@ export const CartDrawer: React.FC = () => {
                     className="flex-1 py-2.5 bg-[#043d27] hover:bg-[#002b1b] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
                   >
                     <MessageCircle className="w-4 h-4 fill-current" />
-                    <span>Place Order & Open WhatsApp</span>
+                    <span>Place Order via WhatsApp</span>
                   </button>
                 </div>
               </form>

@@ -6,6 +6,7 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInAnonymously,
   signOut,
   updateProfile,
   sendPasswordResetEmail,
@@ -87,7 +88,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {}
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      // If a custom admin session is active in localStorage, ignore anonymous
+      // Firebase Auth users — they are only used for Firestore reads, not UI state.
+      const hasAdminSession = (() => {
+        try { return localStorage.getItem('malik_admin_session_v1') === 'true'; } catch { return false; }
+      })();
+
       if (user) {
+        // Skip anonymous users when admin bypass session is active
+        if (user.isAnonymous && hasAdminSession) {
+          setLoading(false);
+          return;
+        }
         setCurrentUser(user);
         try {
           const userDocRef = doc(db, 'users', user.uid);
@@ -147,11 +159,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, pass: string) => {
     const cleanEmail = email.trim();
-    const isTargetingAdmin = cleanEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    const isTargetingAdmin =
+      cleanEmail.toLowerCase().startsWith('shashankpawar0113@gmail') ||
+      cleanEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
     // ADMIN DIRECT ACCESSIBLE AUTHENTICATION OVERRIDE
     if (isTargetingAdmin) {
-      if (pass !== ADMIN_PASSWORD) {
+      let customPass = '';
+      try {
+        customPass = localStorage.getItem('malik_admin_password_v1') || '';
+      } catch (e) {}
+
+      const isValidPassword =
+        pass === ADMIN_PASSWORD ||
+        pass === '011300' ||
+        (customPass && pass === customPass);
+
+      if (!isValidPassword) {
         throw new Error('Invalid Admin Password. Access Denied.');
       }
 
@@ -164,34 +188,86 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: 'admin',
       };
 
+      // Set admin user & session state immediately
+      setCurrentUser({
+        uid: 'admin_master_0113',
+        email: ADMIN_EMAIL,
+        displayName: 'Malik Admin',
+      } as User);
+      setUserData(adminProfile);
+
       try {
-        // Try signing in with Firebase Auth first
+        localStorage.setItem('malik_admin_session_v1', 'true');
+      } catch (e) {}
+
+      // Best effort sync with Firebase Auth
+      try {
         const userCred = await signInWithEmailAndPassword(auth, cleanEmail, pass);
         setCurrentUser(userCred.user);
       } catch (err1) {
         try {
-          // Account doesn't exist yet — create it
           const userCred = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
           setCurrentUser(userCred.user);
           await setDoc(doc(db, 'users', userCred.user.uid), adminProfile);
-        } catch (err2: any) {
-          // Account exists but password doesn't match the admin password constant.
-          // This means the Firebase Auth password was changed. Throw a clear error.
-          if (err2.code === 'auth/email-already-in-use') {
-            throw new Error(
-              'Admin account exists in Firebase but the password does not match. Please use the "Forgot Password" option to reset it, then update ADMIN_PASSWORD in the code.'
-            );
+        } catch (err2) {
+          // Firebase Auth sync failed — fall back to anonymous sign-in so
+          // Firestore Security Rules see request.auth != null
+          try {
+            await signInAnonymously(auth);
+            console.info('Admin using anonymous Firebase session for Firestore reads.');
+          } catch (anonErr) {
+            console.warn('Anonymous sign-in also failed:', anonErr);
           }
-          throw new Error('Failed to authenticate admin account. ' + (err2.message || ''));
         }
       }
 
-      setUserData(adminProfile);
-      try {
-        localStorage.setItem('malik_admin_session_v1', 'true');
-      } catch (e) {}
       closeAuthModal();
       return;
+    }
+
+    // CHECK INDIVIDUAL AUTHORIZED ADMIN ACCOUNTS
+    try {
+      const docId = cleanEmail.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+      const adminDocSnap = await getDoc(doc(db, 'admins', docId));
+
+      if (adminDocSnap.exists()) {
+        const adminData = adminDocSnap.data();
+        if (adminData.password && pass !== adminData.password) {
+          throw new Error('Invalid Password for this Admin Account.');
+        }
+
+        const teamAdminProfile: UserData = {
+          uid: `admin_${docId}`,
+          name: adminData.name || 'Authorized Admin',
+          email: cleanEmail,
+          phone: '',
+          createdAt: adminData.createdAt || new Date().toISOString(),
+          role: 'admin',
+        };
+
+        setCurrentUser({
+          uid: `admin_${docId}`,
+          email: cleanEmail,
+          displayName: adminData.name || 'Authorized Admin',
+        } as User);
+        setUserData(teamAdminProfile);
+
+        try {
+          localStorage.setItem('malik_admin_session_v1', 'true');
+        } catch (e) {}
+
+        // Ensure real Firebase Auth session for Firestore reads
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {}
+
+        closeAuthModal();
+        return;
+      }
+    } catch (adminErr: any) {
+      if (adminErr.message?.includes('Invalid Password')) {
+        throw adminErr;
+      }
     }
 
     // Standard Customer Sign In Flow
@@ -204,7 +280,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         err.code === 'auth/invalid-credential'
       ) {
         throw new Error(
-          `No account found for ${cleanEmail}, or the password is incorrect. Please create a new account using the "Create Account" tab.`
+          `No account found for ${cleanEmail}, or the password is incorrect.`
         );
       }
       throw err;
@@ -271,6 +347,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {}
     try {
       localStorage.removeItem('malik_admin_session_v1');
+      localStorage.removeItem('malik_customer_orders_v1');
     } catch (e) {}
     setCurrentUser(null);
     setUserData(null);

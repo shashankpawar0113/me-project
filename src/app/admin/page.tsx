@@ -14,6 +14,7 @@ import {
   query,
   orderBy,
   setDoc,
+  onSnapshot,
 } from 'firebase/firestore';
 import { OrderRecord, CartItem } from '@/context/CartContext';
 import { Product } from '@/types/product';
@@ -44,9 +45,53 @@ import {
   Check,
 } from 'lucide-react';
 
+export interface AdminAccount {
+  id: string;
+  email: string;
+  name: string;
+  role: 'staff' | 'member' | 'master_admin';
+  createdAt: string;
+  password?: string;
+}
+
+const DEFAULT_MASTER_ADMIN: AdminAccount = {
+  id: 'master_admin_01',
+  email: ADMIN_EMAIL,
+  name: 'Malik Master Admin',
+  role: 'master_admin',
+  createdAt: 'System Primary Master',
+};
+
+const MAX_MASTER_ADMINS = 3;
+
+const ROLE_LABELS: Record<AdminAccount['role'], string> = {
+  staff: 'Staff',
+  member: 'Member',
+  master_admin: 'Master Admin',
+};
+
+const ROLE_COLORS: Record<AdminAccount['role'], string> = {
+  staff: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
+  member: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+  master_admin: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+};
+
 export default function AdminPortalPage() {
   const { currentUser, userData, isAdmin, signIn, resetPassword, logOut, loading: authLoading } = useAuth();
   const { products } = useInventory();
+
+  // Check if currently logged in as Primary Master Admin
+  const isMasterAdmin =
+    currentUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase() ||
+    currentUser?.email?.toLowerCase().startsWith('shashankpawar0113@gmail') ||
+    currentUser?.uid === 'admin_master_0113';
+
+  // Direct localStorage session check — source of truth for admin bypass sessions.
+  // This prevents Firebase Auth state flicker from logging out the admin.
+  const isAdminSessionActive = (() => {
+    if (typeof window === 'undefined') return false;
+    try { return localStorage.getItem('malik_admin_session_v1') === 'true'; } catch { return false; }
+  })();
 
   // Admin Login Form State
   const [adminEmail, setAdminEmail] = useState('');
@@ -58,9 +103,47 @@ export default function AdminPortalPage() {
   // Admin Dashboard State
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
+  const [ordersError, setOrdersError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+
+  // Admin Accounts Management State
+  const [adminAccounts, setAdminAccounts] = useState<AdminAccount[]>([DEFAULT_MASTER_ADMIN]);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminName, setNewAdminName] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [newAdminRole, setNewAdminRole] = useState<AdminAccount['role']>('staff');
+  const [newAdminMasterPin, setNewAdminMasterPin] = useState('');
+  const [adminError, setAdminError] = useState('');
+  const [adminSuccess, setAdminSuccess] = useState('');
+  const [adminSubmitting, setAdminSubmitting] = useState(false);
+  // Role-change modal state
+  const [roleChangeTarget, setRoleChangeTarget] = useState<AdminAccount | null>(null);
+  const [roleChangeTo, setRoleChangeTo] = useState<AdminAccount['role']>('staff');
+  const [roleChangePin, setRoleChangePin] = useState('');
+  const [roleChangeError, setRoleChangeError] = useState('');
+  const [roleChangeSubmitting, setRoleChangeSubmitting] = useState(false);
+
+  // Admin Instant Password Reset State
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetTargetEmail, setResetTargetEmail] = useState('');
+  const [resetSecurityPin, setResetSecurityPin] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetModalError, setResetModalError] = useState('');
+  const [resetModalSuccess, setResetModalSuccess] = useState('');
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+
+  // Security Credentials Management State (PIN & Phone)
+  const [isSecuritySettingsModalOpen, setIsSecuritySettingsModalOpen] = useState(false);
+  const [currentSecurityPin, setCurrentSecurityPin] = useState('');
+  const [newSecurityPin, setNewSecurityPin] = useState('');
+  const [newSecurityPhone, setNewSecurityPhone] = useState('');
+  const [securityModalError, setSecurityModalError] = useState('');
+  const [securityModalSuccess, setSecurityModalSuccess] = useState('');
+  const [securitySubmitting, setSecuritySubmitting] = useState(false);
 
   // Create Booking Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -75,30 +158,253 @@ export default function AdminPortalPage() {
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
 
+  // Process raw Firestore docs into unified, merged order records
+  const processOrdersSnapshot = (docs: Array<{ id: string; data: () => any }>) => {
+    const map = new Map<string, OrderRecord>();
+    docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      const id = data.id || docSnap.id;
+      const record: OrderRecord = { id, ...data };
+
+      const existing = map.get(id);
+      if (existing) {
+        map.set(id, { ...existing, ...record });
+      } else {
+        map.set(id, record);
+      }
+    });
+
+    const unified = Array.from(map.values());
+    unified.sort((a, b) => {
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    return unified;
+  };
+
   // Fetch all orders across all users from Firestore
   const fetchAllOrders = async () => {
     setLoadingOrders(true);
+    setOrdersError('');
     try {
       const ordersColRef = collection(db, 'orders');
-      const q = query(ordersColRef, orderBy('createdAt', 'desc'));
-      const snap = await getDocs(q);
-      const fetched: OrderRecord[] = [];
-      snap.forEach((docSnap) => {
-        fetched.push({ id: docSnap.id, ...docSnap.data() } as OrderRecord);
-      });
-      setOrders(fetched);
-    } catch (e) {
+      const snap = await getDocs(ordersColRef);
+      const unified = processOrdersSnapshot(snap.docs);
+      setOrders(unified);
+      if (unified.length === 0) {
+        console.info('Orders collection returned 0 documents. Firebase auth state:', { uid: 'check console' });
+      }
+    } catch (e: any) {
       console.error('Error fetching global orders:', e);
+      const msg = e?.code === 'permission-denied'
+        ? '🔒 Firestore Permission Denied — your Firestore Security Rules are blocking reads. Go to Firebase Console → Firestore → Rules and allow reads for authenticated users.'
+        : `Error loading orders: ${e?.message || e}`;
+      setOrdersError(msg);
     } finally {
       setLoadingOrders(false);
     }
   };
 
-  useEffect(() => {
-    if (isAdmin) {
-      fetchAllOrders();
+  // Fetch all admin accounts from Firestore
+  const fetchAdminAccounts = async () => {
+    try {
+      const adminsRef = collection(db, 'admins');
+      const snap = await getDocs(adminsRef);
+      const fetched: AdminAccount[] = [];
+      snap.forEach((docSnap) => {
+        fetched.push({ id: docSnap.id, ...docSnap.data() } as AdminAccount);
+      });
+
+      const map = new Map<string, AdminAccount>();
+      map.set(DEFAULT_MASTER_ADMIN.email.toLowerCase(), DEFAULT_MASTER_ADMIN);
+      fetched.forEach((a) => map.set(a.email.toLowerCase(), a));
+
+      setAdminAccounts(Array.from(map.values()));
+    } catch (e) {
+      setAdminAccounts([DEFAULT_MASTER_ADMIN]);
     }
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    fetchAdminAccounts();
+    setLoadingOrders(true);
+    setOrdersError('');
+
+    const ordersColRef = collection(db, 'orders');
+
+    // Subscribe to real-time updates directly on the collection
+    const unsubscribe = onSnapshot(
+      ordersColRef,
+      (snap) => {
+        const unified = processOrdersSnapshot(snap.docs);
+        setOrders(unified);
+        setLoadingOrders(false);
+        setOrdersError('');
+      },
+      (err: any) => {
+        console.error('Realtime orders error in admin:', err);
+        const msg = err?.code === 'permission-denied'
+          ? '🔒 Firestore Permission Denied — Go to Firebase Console → Firestore Database → Rules and set: allow read, write: if request.auth != null;'
+          : `Realtime listener error: ${err?.message || err}`;
+        setOrdersError(msg);
+        fetchAllOrders();
+      }
+    );
+
+    return () => unsubscribe();
   }, [isAdmin]);
+
+  const handleAddAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminError('');
+    setAdminSuccess('');
+
+    if (!isMasterAdmin) {
+      setAdminError('Only Master Admin can add new admin accounts.');
+      return;
+    }
+
+    const cleanEmail = newAdminEmail.trim().toLowerCase();
+    const cleanName = newAdminName.trim();
+    const cleanPass = newAdminPassword.trim();
+
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setAdminError('Please enter a valid admin email address.');
+      return;
+    }
+    if (!cleanPass || cleanPass.length < 4) {
+      setAdminError('Please set a password (minimum 4 characters).');
+      return;
+    }
+
+    // Enforce Master Admin role rules
+    if (newAdminRole === 'master_admin') {
+      if (!checkIsValidSecurityPinOrPhone(newAdminMasterPin)) {
+        setAdminError('❌ Invalid Master Security PIN / Phone. Required to assign Master Admin role.');
+        return;
+      }
+      const currentMasterCount = adminAccounts.filter((a) => a.role === 'master_admin').length;
+      if (currentMasterCount >= MAX_MASTER_ADMINS) {
+        setAdminError(`❌ Maximum ${MAX_MASTER_ADMINS} Master Admins allowed. Remove one first.`);
+        return;
+      }
+    }
+
+    setAdminSubmitting(true);
+    try {
+      const docId = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      const newAccount: AdminAccount = {
+        id: docId,
+        email: cleanEmail,
+        name: cleanName || 'Authorized Admin',
+        password: cleanPass,
+        role: newAdminRole,
+        createdAt: new Date().toISOString(),
+      };
+
+      await setDoc(doc(db, 'admins', docId), newAccount, { merge: true });
+
+      setAdminAccounts((prev) => {
+        const filtered = prev.filter((a) => a.email.toLowerCase() !== cleanEmail);
+        return [...filtered, newAccount];
+      });
+
+      setAdminSuccess(`Successfully added ${cleanEmail} as ${ROLE_LABELS[newAdminRole]}!`);
+      setNewAdminEmail('');
+      setNewAdminName('');
+      setNewAdminPassword('');
+      setNewAdminRole('staff');
+      setNewAdminMasterPin('');
+    } catch (err: any) {
+      console.error('Failed to add admin:', err);
+      setAdminError(err.message || 'Failed to add admin account.');
+    } finally {
+      setAdminSubmitting(false);
+    }
+  };
+
+  const handleChangeAdminRole = async () => {
+    if (!roleChangeTarget) return;
+    setRoleChangeError('');
+    setRoleChangeSubmitting(true);
+    try {
+      // Assigning Master Admin always requires PIN
+      if (roleChangeTo === 'master_admin') {
+        if (!checkIsValidSecurityPinOrPhone(roleChangePin)) {
+          setRoleChangeError('❌ Invalid Master Security PIN / Phone.');
+          setRoleChangeSubmitting(false);
+          return;
+        }
+        const currentMasterCount = adminAccounts.filter(
+          (a) => a.role === 'master_admin' && a.email !== roleChangeTarget.email
+        ).length;
+        if (currentMasterCount >= MAX_MASTER_ADMINS) {
+          setRoleChangeError(`❌ Maximum ${MAX_MASTER_ADMINS} Master Admins allowed.`);
+          setRoleChangeSubmitting(false);
+          return;
+        }
+      }
+      // Demoting a Master Admin also requires PIN
+      if (roleChangeTarget.role === 'master_admin' && roleChangeTo !== 'master_admin') {
+        if (!checkIsValidSecurityPinOrPhone(roleChangePin)) {
+          setRoleChangeError('❌ Master Security PIN required to demote a Master Admin.');
+          setRoleChangeSubmitting(false);
+          return;
+        }
+      }
+      // Cannot change primary master admin role
+      if (roleChangeTarget.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        setRoleChangeError('❌ Primary Master Admin role cannot be changed.');
+        setRoleChangeSubmitting(false);
+        return;
+      }
+
+      const docId = roleChangeTarget.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+      await updateDoc(doc(db, 'admins', docId), { role: roleChangeTo });
+
+      setAdminAccounts((prev) =>
+        prev.map((a) =>
+          a.email.toLowerCase() === roleChangeTarget.email.toLowerCase()
+            ? { ...a, role: roleChangeTo }
+            : a
+        )
+      );
+      setRoleChangeTarget(null);
+      setRoleChangePin('');
+      setRoleChangeTo('staff');
+    } catch (err: any) {
+      setRoleChangeError(err.message || 'Failed to update role.');
+    } finally {
+      setRoleChangeSubmitting(false);
+    }
+  };
+
+
+  const handleRemoveAdmin = async (email: string) => {
+    if (!isMasterAdmin) {
+      alert('Only Primary Master Admin can remove admin accounts.');
+      return;
+    }
+
+    if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      alert('The Primary Master Admin account cannot be removed.');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to revoke admin access for ${email}?`)) return;
+
+    try {
+      const docId = email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+      await deleteDoc(doc(db, 'admins', docId));
+      setAdminAccounts((prev) => prev.filter((a) => a.email.toLowerCase() !== email.toLowerCase()));
+    } catch (err: any) {
+      console.error('Failed to remove admin:', err);
+    }
+  };
 
   // Handle Admin Sign In
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -108,8 +414,12 @@ export default function AdminPortalPage() {
     setLoginSubmitting(true);
 
     try {
-      if (adminEmail.trim().toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
-        throw new Error('Access Denied. Only the authorized Admin email can log into the Admin Portal.');
+      const cleanEmail = adminEmail.trim().toLowerCase();
+      const isMasterVariant = cleanEmail.startsWith('shashankpawar0113@gmail') || cleanEmail === ADMIN_EMAIL.toLowerCase();
+      const isTeamAdmin = adminAccounts.some((a) => a.email.toLowerCase() === cleanEmail);
+
+      if (!isMasterVariant && !isTeamAdmin) {
+        throw new Error('Access Denied. Only authorized Admin email accounts can log into the Admin Portal.');
       }
       await signIn(adminEmail.trim(), adminPassword);
     } catch (err: any) {
@@ -132,30 +442,179 @@ export default function AdminPortalPage() {
     }
   };
 
+  const checkIsValidSecurityPinOrPhone = (inputVal: string): boolean => {
+    const rawInput = inputVal.trim();
+    const cleanDigits = inputVal.replace(/\D/g, '');
+
+    let customPin = '';
+    let customPhone = '';
+    try {
+      customPin = localStorage.getItem('malik_admin_pin_v1') || '';
+      customPhone = localStorage.getItem('malik_admin_security_phone_v1') || '';
+    } catch (e) {}
+
+    // Check custom saved PIN or Phone
+    if (customPin && rawInput === customPin) return true;
+    if (customPhone && (rawInput === customPhone || cleanDigits === customPhone.replace(/\D/g, ''))) return true;
+
+    // Default PIN: 0113 or 011300
+    if (rawInput === '0113' || rawInput === '011300') return true;
+    // Default Phone: 9318446981 (or legacy 7078523738)
+    if (cleanDigits === '9318446981' || rawInput === '9318446981' || cleanDigits === '7078523738' || rawInput === '7078523738') return true;
+
+    return false;
+  };
+
+  const handleInstantPasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetModalError('');
+    setResetModalSuccess('');
+
+    const targetEmail = resetTargetEmail.trim().toLowerCase();
+    const cleanPin = resetSecurityPin.trim();
+
+    if (!targetEmail || !targetEmail.includes('@')) {
+      setResetModalError('Please enter a valid Admin Email Address.');
+      return;
+    }
+
+    if (!checkIsValidSecurityPinOrPhone(cleanPin)) {
+      setResetModalError('Incorrect Master Security PIN or Registered Phone Number.');
+      return;
+    }
+
+    if (!resetNewPassword || resetNewPassword.length < 4) {
+      setResetModalError('New password must be at least 4 characters long.');
+      return;
+    }
+
+    if (resetNewPassword !== resetConfirmPassword) {
+      setResetModalError('New passwords do not match. Please re-enter carefully.');
+      return;
+    }
+
+    setResetSubmitting(true);
+    try {
+      const isMasterVariant =
+        targetEmail.startsWith('shashankpawar0113@gmail') || targetEmail === ADMIN_EMAIL.toLowerCase();
+
+      if (isMasterVariant) {
+        localStorage.setItem('malik_admin_password_v1', resetNewPassword);
+        try {
+          await setDoc(
+            doc(db, 'system', 'admin_config'),
+            { masterPassword: resetNewPassword, updatedAt: new Date().toISOString() },
+            { merge: true }
+          );
+        } catch (e) {}
+      } else {
+        // Reset password for specific team admin account
+        const docId = targetEmail.replace(/[^a-zA-Z0-9]/g, '_');
+        const adminDocRef = doc(db, 'admins', docId);
+
+        await setDoc(
+          adminDocRef,
+          {
+            email: targetEmail,
+            password: resetNewPassword,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+
+        setAdminAccounts((prev) =>
+          prev.map((acc) => (acc.email.toLowerCase() === targetEmail ? { ...acc, password: resetNewPassword } : acc))
+        );
+      }
+
+      setResetModalSuccess(`✅ Password updated successfully for ${targetEmail}! You can now log in using your new password.`);
+      if (adminEmail.trim().toLowerCase() === targetEmail) {
+        setAdminPassword(resetNewPassword);
+      }
+      setTimeout(() => {
+        setIsResetModalOpen(false);
+      }, 1800);
+    } catch (err: any) {
+      setResetModalError(err.message || 'Failed to update password.');
+    } finally {
+      setResetSubmitting(false);
+    }
+  };
+
+  const handleChangeSecurityCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityModalError('');
+    setSecurityModalSuccess('');
+
+    // Verification of Old PIN / Phone before changing!
+    if (!checkIsValidSecurityPinOrPhone(currentSecurityPin)) {
+      setSecurityModalError('Current Security PIN or Phone is incorrect. Verification failed.');
+      return;
+    }
+
+    if (!newSecurityPin.trim() && !newSecurityPhone.trim()) {
+      setSecurityModalError('Please enter a new Security PIN or a new Registered Phone Number.');
+      return;
+    }
+
+    setSecuritySubmitting(true);
+    try {
+      if (newSecurityPin.trim()) {
+        localStorage.setItem('malik_admin_pin_v1', newSecurityPin.trim());
+      }
+      if (newSecurityPhone.trim()) {
+        const cleanPhone = newSecurityPhone.replace(/\D/g, '');
+        localStorage.setItem('malik_admin_security_phone_v1', cleanPhone || newSecurityPhone.trim());
+      }
+
+      try {
+        await setDoc(doc(db, 'system', 'admin_security'), {
+          securityPin: newSecurityPin.trim() || undefined,
+          securityPhone: newSecurityPhone.trim() || undefined,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser?.email || 'admin'
+        }, { merge: true });
+      } catch (e) {}
+
+      setSecurityModalSuccess('✅ Master Security PIN & Registered Phone Number updated successfully!');
+      setTimeout(() => {
+        setIsSecuritySettingsModalOpen(false);
+        setCurrentSecurityPin('');
+        setNewSecurityPin('');
+        setNewSecurityPhone('');
+      }, 1800);
+    } catch (err: any) {
+      setSecurityModalError(err.message || 'Failed to update security credentials.');
+    } finally {
+      setSecuritySubmitting(false);
+    }
+  };
+
 
 
   // Update Booking Status
   const handleUpdateStatus = async (orderId: string, userId: string, newStatus: OrderRecord['status']) => {
     setUpdatingOrderId(orderId);
+
+    // Optimistically update local state immediately
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
+    );
+
     try {
       // 1. Update in global orders collection
       const globalDocRef = doc(db, 'orders', orderId);
-      await updateDoc(globalDocRef, { status: newStatus });
+      await setDoc(globalDocRef, { status: newStatus }, { merge: true });
 
       // 2. Update in user's orders subcollection if userId exists
       if (userId) {
         try {
           const userDocRef = doc(db, 'users', userId, 'orders', orderId);
-          await updateDoc(userDocRef, { status: newStatus });
+          await setDoc(userDocRef, { status: newStatus }, { merge: true });
         } catch (e) {}
       }
-
-      // Update local state
-      setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
-      );
     } catch (e) {
-      console.error('Failed to update order status:', e);
+      console.error('Failed to update order status in Firestore:', e);
     } finally {
       setUpdatingOrderId(null);
     }
@@ -291,7 +750,238 @@ export default function AdminPortalPage() {
     });
   }, [orders, searchQuery, statusFilter]);
 
-  if (authLoading) {
+  const renderResetModal = () => {
+    if (!isResetModalOpen) return null;
+    return (
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-5 animate-fadeIn">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white">Instant Admin Password Reset</h3>
+                <p className="text-[11px] text-slate-400">Reset password directly using Master Security PIN</p>
+              </div>
+            </div>
+            <button onClick={() => setIsResetModalOpen(false)} className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleInstantPasswordReset} className="space-y-4">
+            {resetModalError && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{resetModalError}</span>
+              </div>
+            )}
+
+            {resetModalSuccess && (
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+                <span>{resetModalSuccess}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">
+                Admin Email Address <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="Enter admin email to reset password for"
+                value={resetTargetEmail}
+                onChange={(e) => setResetTargetEmail(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">Which admin account are you resetting the password for?</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">
+                Master Security PIN / Registered Phone <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Enter Master Security PIN or Registered Phone"
+                value={resetSecurityPin}
+                onChange={(e) => setResetSecurityPin(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">
+                New Admin Password
+              </label>
+              <input
+                type="password"
+                required
+                placeholder="Enter your new password"
+                value={resetNewPassword}
+                onChange={(e) => setResetNewPassword(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                required
+                placeholder="Re-enter your new password"
+                value={resetConfirmPassword}
+                onChange={(e) => setResetConfirmPassword(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={resetSubmitting}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg shadow-md disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {resetSubmitting ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                <span>Update Password</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSecuritySettingsModal = () => {
+    if (!isSecuritySettingsModalOpen) return null;
+    return (
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-5 animate-fadeIn">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white">Change Security PIN & Registered Phone</h3>
+                <p className="text-[11px] text-slate-400">Update your security credentials used for password resets</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsSecuritySettingsModalOpen(false)}
+              className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleChangeSecurityCredentials} className="space-y-4">
+            {securityModalError && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{securityModalError}</span>
+              </div>
+            )}
+
+            {securityModalSuccess && (
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+                <span>{securityModalSuccess}</span>
+              </div>
+            )}
+
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1">
+              <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Security Verification Step</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                You must enter your current Security PIN or current Registered Phone number to authorize changes.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">
+                Current Security PIN / Phone <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Enter current Security PIN or Phone"
+                value={currentSecurityPin}
+                onChange={(e) => setCurrentSecurityPin(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div className="border-t border-slate-800 pt-3 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  New Master Security PIN
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter new PIN (e.g. 4321)"
+                  value={newSecurityPin}
+                  onChange={(e) => setNewSecurityPin(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  New Registered Phone Number
+                </label>
+                <input
+                  type="tel"
+                  placeholder="Enter new 10-digit phone (e.g. 9318446981)"
+                  value={newSecurityPhone}
+                  onChange={(e) => setNewSecurityPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSecuritySettingsModalOpen(false)}
+                className="w-1/3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg border border-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={securitySubmitting}
+                className="w-2/3 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg shadow-md disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+              >
+                {securitySubmitting ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                )}
+                <span>Save Credentials</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  // Show spinner only if Firebase auth is still loading AND no local admin session exists.
+  // If localStorage has a valid admin session, skip the spinner entirely.
+  if (authLoading && !isAdminSessionActive) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <div className="text-center space-y-3">
@@ -303,7 +993,9 @@ export default function AdminPortalPage() {
   }
 
   // 1. ADMIN LOGIN GUARD SCREEN
-  if (!currentUser || !isAdmin) {
+  // Allow access if: local admin session exists OR Firebase confirms admin role.
+  const hasAdminAccess = isAdminSessionActive || (!!currentUser && isAdmin);
+  if (!hasAdminAccess) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-2xl relative overflow-hidden">
@@ -354,7 +1046,12 @@ export default function AdminPortalPage() {
                 <label className="block text-xs font-bold text-slate-300">Admin Password</label>
                 <button
                   type="button"
-                  onClick={handleSendResetEmail}
+                  onClick={() => {
+                    setResetTargetEmail('');
+                    setResetModalError('');
+                    setResetModalSuccess('');
+                    setIsResetModalOpen(true);
+                  }}
                   className="text-[11px] text-emerald-400 hover:underline font-semibold"
                 >
                   Reset Password?
@@ -389,13 +1086,14 @@ export default function AdminPortalPage() {
             </button>
           </form>
 
-
           <div className="pt-4 border-t border-slate-800 text-center">
             <a href="/" className="text-xs font-medium text-slate-400 hover:text-emerald-400 flex items-center justify-center gap-1">
               <ArrowLeft className="w-3.5 h-3.5" /> Return to Customer Storefront
             </a>
           </div>
         </div>
+
+        {renderResetModal()}
       </div>
     );
   }
@@ -417,11 +1115,32 @@ export default function AdminPortalPage() {
                   LIVE CONTROLS
                 </span>
               </div>
-              <p className="text-xs text-slate-400 hidden sm:block">Logged in as {currentUser.email}</p>
+              <p className="text-xs text-slate-400 hidden sm:block">Logged in as {currentUser?.email ?? ADMIN_EMAIL}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsAdminModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-xs font-bold text-purple-300 border border-purple-500/40 transition-colors"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Admins ({adminAccounts.length})</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setSecurityModalError('');
+                setSecurityModalSuccess('');
+                setIsSecuritySettingsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-xs font-bold text-amber-300 border border-amber-500/40 transition-colors"
+              title="Change Master Security PIN & Phone"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Security PIN</span>
+            </button>
+
             <button
               onClick={fetchAllOrders}
               className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700"
@@ -452,16 +1171,27 @@ export default function AdminPortalPage() {
       {/* DASHBOARD CONTENT */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
         {/* ANALYTICS SUMMARY STATS CARDS */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-1 shadow-sm">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Total Revenue</span>
               <DollarSign className="w-4 h-4 text-emerald-400" />
             </div>
-            <div className="text-xl font-black text-emerald-400 font-mono">
-              ₹{metrics.totalRev.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[10px] text-slate-500">From all bookings</div>
+            {isMasterAdmin ? (
+              <>
+                <div className="text-xl font-black text-emerald-400 font-mono">
+                  ₹{metrics.totalRev.toLocaleString('en-IN')}
+                </div>
+                <div className="text-[10px] text-slate-500">From all bookings</div>
+              </>
+            ) : (
+              <>
+                <div className="text-xl font-black text-slate-600 font-mono flex items-center gap-1">
+                  <Lock className="w-4 h-4" /> ••••••
+                </div>
+                <div className="text-[10px] text-slate-500">Master Admin only</div>
+              </>
+            )}
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-1 shadow-sm">
@@ -491,13 +1221,28 @@ export default function AdminPortalPage() {
             <div className="text-[10px] text-slate-500">Confirmed / Dispatched</div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-1 shadow-sm col-span-2 sm:col-span-1">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-1 shadow-sm">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Delivered</span>
               <CheckCircle className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-xl font-black text-emerald-400 font-mono">{metrics.deliveredCount}</div>
             <div className="text-[10px] text-slate-500">Completed bookings</div>
+          </div>
+
+          <div
+            onClick={() => setIsAdminModalOpen(true)}
+            className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-1 shadow-sm cursor-pointer hover:border-purple-500/50 transition-colors"
+          >
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Admin Users</span>
+              <ShieldCheck className="w-4 h-4 text-purple-400" />
+            </div>
+            <div className="text-xl font-black text-purple-400 font-mono">{adminAccounts.length} Active</div>
+            <div className="text-[10px] text-emerald-400 font-bold flex items-center justify-between">
+              <span>Add / Remove</span>
+              <span>→</span>
+            </div>
           </div>
         </div>
 
@@ -559,6 +1304,18 @@ export default function AdminPortalPage() {
             </h2>
           </div>
 
+          {ordersError && (
+            <div className="mx-4 mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-xs text-red-300 font-medium">{ordersError}</p>
+              <button
+                onClick={fetchAllOrders}
+                className="mt-2 text-xs text-red-400 underline hover:text-red-200"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {loadingOrders ? (
             <div className="p-12 text-center space-y-3">
               <div className="inline-block animate-spin rounded-full h-7 w-7 border-2 border-emerald-400 border-t-transparent" />
@@ -567,10 +1324,27 @@ export default function AdminPortalPage() {
           ) : filteredOrders.length === 0 ? (
             <div className="p-12 text-center space-y-3">
               <Package className="w-10 h-10 text-slate-600 mx-auto" />
-              <h3 className="font-bold text-slate-300 text-sm">No Bookings Found</h3>
+              <h3 className="font-bold text-slate-300 text-sm">
+                {statusFilter !== 'All' ? `No ${statusFilter} Bookings Found` : 'No Bookings Found'}
+              </h3>
               <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                No customer bookings match your current search or status filter.
+                {searchQuery
+                  ? `No orders match "${searchQuery}". Try clearing your search.`
+                  : statusFilter !== 'All'
+                  ? `You currently have 0 orders marked as "${statusFilter}". Click below to view all customer orders.`
+                  : 'No customer bookings match your current view.'}
               </p>
+              {(statusFilter !== 'All' || searchQuery) && (
+                <button
+                  onClick={() => {
+                    setStatusFilter('All');
+                    setSearchQuery('');
+                  }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-bold rounded-lg border border-slate-700 transition-colors"
+                >
+                  Reset Filter & View All ({orders.length} Total Orders)
+                </button>
+              )}
             </div>
           ) : (
             <div className="divide-y divide-slate-800">
@@ -604,28 +1378,28 @@ export default function AdminPortalPage() {
                     <div className="flex items-center gap-2">
                       <div className="relative">
                         <select
-                          value={order.status}
+                          value={order.status || 'Processing'}
                           disabled={updatingOrderId === order.id}
                           onChange={(e) =>
                             handleUpdateStatus(order.id, order.userId, e.target.value as OrderRecord['status'])
                           }
                           className={`appearance-none font-bold text-xs px-3 py-1.5 pr-7 rounded-lg border focus:outline-none transition-colors cursor-pointer ${
                             order.status === 'Processing'
-                              ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                               : order.status === 'Confirmed'
-                              ? 'bg-blue-500/10 text-blue-300 border-blue-500/30'
+                              ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
                               : order.status === 'Dispatched'
-                              ? 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                              ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
                               : order.status === 'Delivered'
-                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                              : 'bg-red-500/10 text-red-300 border-red-500/30'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : 'bg-red-500/20 text-red-300 border-red-500/40'
                           }`}
                         >
-                          <option value="Processing">Processing</option>
-                          <option value="Confirmed">Confirmed</option>
-                          <option value="Dispatched">Dispatched</option>
-                          <option value="Delivered">Delivered</option>
-                          <option value="Cancelled">Cancelled</option>
+                          <option value="Processing" className="bg-slate-900 text-amber-300 font-bold py-1">Processing</option>
+                          <option value="Confirmed" className="bg-slate-900 text-blue-300 font-bold py-1">Confirmed</option>
+                          <option value="Dispatched" className="bg-slate-900 text-purple-300 font-bold py-1">Dispatched</option>
+                          <option value="Delivered" className="bg-slate-900 text-emerald-300 font-bold py-1">Delivered</option>
+                          <option value="Cancelled" className="bg-slate-900 text-red-300 font-bold py-1">Cancelled</option>
                         </select>
                         <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none opacity-60" />
                       </div>
@@ -868,6 +1642,300 @@ export default function AdminPortalPage() {
           </div>
         </div>
       )}
+
+      {/* MANAGE AUTHORIZED ADMIN ACCOUNTS MODAL */}
+      {isAdminModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-fadeIn">
+            {/* MODAL HEADER */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-400 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Manage Authorized Admins</h3>
+                  <p className="text-xs text-slate-400">{adminAccounts.length} active admin user accounts</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAdminModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-6 max-h-[75vh] overflow-y-auto">
+              {/* ADD NEW ADMIN FORM (MASTER ADMIN ONLY) */}
+              {isMasterAdmin ? (
+                <form onSubmit={handleAddAdmin} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                  <div className="font-bold text-xs text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Add Authorized Admin Account</span>
+                  </div>
+
+                  {adminError && (
+                    <div className="p-2.5 bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg text-xs font-medium">
+                      {adminError}
+                    </div>
+                  )}
+
+                  {adminSuccess && (
+                    <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-lg text-xs font-medium">
+                      {adminSuccess}
+                    </div>
+                  )}
+
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                          Admin Full Name
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Alex Sharma"
+                          value={newAdminName}
+                          onChange={(e) => setNewAdminName(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                          Admin Email Address <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="admin@malik.com"
+                          value={newAdminEmail}
+                          onChange={(e) => setNewAdminEmail(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                        Assign Admin Password <span className="text-red-400">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Set unique password for this admin account"
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {/* ROLE SELECTOR */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 mb-1.5">
+                        Assign Role <span className="text-red-400">*</span>
+                      </label>
+                      <div className="flex gap-2">
+                        {(['staff', 'member', 'master_admin'] as AdminAccount['role'][]).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setNewAdminRole(r)}
+                            className={`flex-1 py-2 rounded-lg text-[11px] font-bold border transition-colors ${
+                              newAdminRole === r
+                                ? ROLE_COLORS[r] + ' border-current'
+                                : 'bg-slate-900 text-slate-500 border-slate-700 hover:border-slate-500'
+                            }`}
+                          >
+                            {ROLE_LABELS[r]}
+                          </button>
+                        ))}
+                      </div>
+                      {newAdminRole === 'master_admin' && (
+                        <div className="mt-2">
+                          <input
+                            type="text"
+                            placeholder="Enter Master Security PIN / Phone to confirm"
+                            value={newAdminMasterPin}
+                            onChange={(e) => setNewAdminMasterPin(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-900 border border-purple-500/50 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+                          />
+                          <p className="text-[10px] text-purple-400 mt-1">⚠️ Master Admin can view revenue. Max 3 allowed.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={adminSubmitting}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {adminSubmitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4" />
+                    )}
+                    <span>Add Admin as {ROLE_LABELS[newAdminRole]}</span>
+                  </button>
+                </form>
+              ) : (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300 flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Only Primary Master Admin ({ADMIN_EMAIL}) can add or remove admin accounts.</span>
+                </div>
+              )}
+
+              {/* ADMIN ACCOUNTS LIST */}
+              <div className="space-y-3">
+                <div className="font-bold text-xs text-slate-400 uppercase tracking-wider">
+                  Active Admin Accounts ({adminAccounts.length})
+                </div>
+
+                <div className="space-y-2">
+                  {adminAccounts.map((acc) => {
+                    const isPrimary = acc.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+                    return (
+                      <div
+                        key={acc.id}
+                        className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl flex items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                            {acc.name?.[0]?.toUpperCase() || 'A'}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-xs text-white truncate">{acc.name || acc.email}</span>
+                              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${ROLE_COLORS[acc.role] || 'bg-slate-700 text-slate-300 border-slate-600'}`}>
+                                {ROLE_LABELS[acc.role] || acc.role}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 truncate">{acc.email}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Change Role button — only master admin, not for primary */}
+                          {isMasterAdmin && !isPrimary && (
+                            <button
+                              onClick={() => {
+                                setRoleChangeTarget(acc);
+                                setRoleChangeTo(acc.role);
+                                setRoleChangePin('');
+                                setRoleChangeError('');
+                              }}
+                              className="px-2 py-1 text-[10px] font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors"
+                              title="Change Role"
+                            >
+                              Change Role
+                            </button>
+                          )}
+                          {isMasterAdmin && !isPrimary ? (
+                            <button
+                              onClick={() => handleRemoveAdmin(acc.email)}
+                              className="p-2 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors border border-red-500/30"
+                              title="Revoke Admin Access"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-500 px-2 py-1 bg-slate-900 rounded border border-slate-800">
+                              {isPrimary ? 'Primary' : 'Protected'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ROLE CHANGE MODAL */}
+      {roleChangeTarget && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-white">Change Role</h3>
+              <button onClick={() => setRoleChangeTarget(null)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Changing role for <span className="text-white font-bold">{roleChangeTarget.email}</span>
+            </p>
+
+            {/* Role selector */}
+            <div className="flex gap-2">
+              {(['staff', 'member', 'master_admin'] as AdminAccount['role'][]).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRoleChangeTo(r)}
+                  className={`flex-1 py-2 rounded-lg text-[11px] font-bold border transition-colors ${
+                    roleChangeTo === r
+                      ? ROLE_COLORS[r] + ' border-current'
+                      : 'bg-slate-800 text-slate-500 border-slate-700 hover:border-slate-500'
+                  }`}
+                >
+                  {ROLE_LABELS[r]}
+                </button>
+              ))}
+            </div>
+
+            {/* PIN required for master_admin assignment or demotion */}
+            {(roleChangeTo === 'master_admin' || roleChangeTarget.role === 'master_admin') && (
+              <div>
+                <input
+                  type="text"
+                  placeholder="Master Security PIN / Phone required"
+                  value={roleChangePin}
+                  onChange={(e) => setRoleChangePin(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-purple-500/50 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+                />
+                <p className="text-[10px] text-purple-400 mt-1">
+                  {roleChangeTo === 'master_admin'
+                    ? '⚠️ Master Admin role requires PIN verification.'
+                    : '⚠️ Demoting a Master Admin requires PIN verification.'}
+                </p>
+              </div>
+            )}
+
+            {roleChangeError && (
+              <p className="text-xs text-red-400 font-medium">{roleChangeError}</p>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setRoleChangeTarget(null)}
+                className="flex-1 py-2 text-xs font-bold text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleChangeAdminRole}
+                disabled={roleChangeSubmitting}
+                className="flex-1 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {roleChangeSubmitting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                Save Role
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INSTANT ADMIN PASSWORD RESET MODAL */}
+      {renderResetModal()}
+
+      {/* SECURITY CREDENTIALS MANAGEMENT MODAL */}
+      {renderSecuritySettingsModal()}
     </div>
   );
 }

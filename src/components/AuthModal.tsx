@@ -2,10 +2,12 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useCart } from '@/context/CartContext';
 import { X, Lock, Mail, User as UserIcon, Phone, AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 export const AuthModal: React.FC = () => {
   const { isAuthModalOpen, authModalMode, closeAuthModal, openAuthModal, signIn, signUp, signInWithGoogle } = useAuth();
+  const { openCart, items } = useCart();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -41,6 +43,9 @@ export const AuthModal: React.FC = () => {
       setPassword('');
       setName('');
       setPhone('');
+      if (items.length > 0) {
+        openCart();
+      }
     } catch (err: any) {
       console.error('Auth error:', err);
       let msg = err.message || 'An error occurred during authentication.';
@@ -68,6 +73,9 @@ export const AuthModal: React.FC = () => {
       setPassword('');
       setName('');
       setPhone('');
+      if (items.length > 0) {
+        openCart();
+      }
     } catch (err: any) {
       console.error('Google sign-in error:', err);
       setError(err.message || 'Google Sign-In failed.');

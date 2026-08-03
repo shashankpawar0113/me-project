@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import {
   collection,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   doc,
@@ -69,7 +70,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         createdAt: new Date().toISOString(),
       };
 
-      await addDoc(collection(db, 'products'), productToAdd);
+      if (newProdData.id && newProdData.id.trim()) {
+        // Use the custom ID as the Firestore document ID
+        const docRef = doc(db, 'products', newProdData.id.trim());
+        await setDoc(docRef, productToAdd);
+      } else {
+        await addDoc(collection(db, 'products'), productToAdd);
+      }
       // onSnapshot will automatically update the local state
     } catch (e) {
       console.error('Failed to add product to Firestore:', e);
