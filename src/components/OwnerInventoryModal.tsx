@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useInventory } from '@/context/InventoryContext';
+import { ensureFirebaseAuth } from '@/lib/ensureFirebaseAuth';
 import { X, Plus, CheckCircle2, Ban, Trash2, RotateCcw, PackagePlus, ListFilter, UploadCloud, Tag, Lock, KeyRound, ShieldAlert, LogOut, PhoneCall, HelpCircle, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 interface OwnerInventoryModalProps {
@@ -55,6 +56,61 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [imageUrl, setImageUrl] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [busyProductId, setBusyProductId] = useState<string | null>(null);
+
+  const getFirestoreActionError = (error: unknown, action: 'update' | 'delete') => {
+    const code = (error as { code?: string })?.code;
+    if (code === 'auth/operation-not-allowed') {
+      return 'Firebase Anonymous sign-in is disabled. In Firebase Console → Authentication → Sign-in method, enable Anonymous, then try again.';
+    }
+    if (code === 'permission-denied') {
+      return `Could not ${action} product — Firestore blocked the change. In Firebase Console → Firestore → Rules, add: match /products/{id} { allow read, write: if true; } then click Publish.`;
+    }
+    return `Failed to ${action} product. Please check your connection and try again.`;
+  };
+
+  const unlockOwnerTools = async () => {
+    setIsAuthenticated(true);
+    setPasswordError('');
+    setPasswordInput('');
+    try {
+      await ensureFirebaseAuth();
+    } catch (error) {
+      console.error('Firebase auth for owner tools failed:', error);
+      setActionError(getFirestoreActionError(error, 'update'));
+    }
+  };
+
+  const handleToggleSold = async (id: string) => {
+    setActionError('');
+    setBusyProductId(id);
+    try {
+      await toggleSoldStatus(id);
+    } catch (error) {
+      console.error('Toggle sold status failed:', error);
+      setActionError(getFirestoreActionError(error, 'update'));
+    } finally {
+      setBusyProductId(null);
+    }
+  };
+
+  const handleDeleteProduct = async (id: string, title: string) => {
+    if (!window.confirm(`Delete "${title}" from the catalog? This cannot be undone.`)) {
+      return;
+    }
+
+    setActionError('');
+    setBusyProductId(id);
+    try {
+      await deleteProduct(id);
+    } catch (error) {
+      console.error('Delete product failed:', error);
+      setActionError(getFirestoreActionError(error, 'delete'));
+    } finally {
+      setBusyProductId(null);
+    }
+  };
 
   // Load stored owner password on mount
   useEffect(() => {
@@ -73,7 +129,7 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
   if (!isOpen) return null;
 
   // Handle Login Authentication
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     let currentPass = storedPassword;
     try {
@@ -86,9 +142,7 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
     }
 
     if (passwordInput.trim() === currentPass) {
-      setIsAuthenticated(true);
-      setPasswordError('');
-      setPasswordInput('');
+      await unlockOwnerTools();
     } else {
       setPasswordError('Incorrect password! Please try again or use Forgot Password.');
     }
@@ -121,13 +175,13 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
     }
 
     setResetSuccessMessage('Owner Phone Verified! Password updated & saved. Unlocking tools...');
-    setTimeout(() => {
+    setTimeout(async () => {
       setResetSuccessMessage('');
       setIsForgotPasswordMode(false);
-      setIsAuthenticated(true);
       setResetNewPassword('');
       setVerifyPhoneInput('');
       setPhoneError('');
+      await unlockOwnerTools();
     }, 1200);
   };
 
@@ -259,10 +313,14 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="fixed inset-0" onClick={onClose} />
-
-      <div className="relative bg-white rounded-xl max-w-2xl w-full shadow-2xl overflow-hidden z-10 my-6 border border-slate-200 text-slate-900 flex flex-col">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white rounded-xl max-w-2xl w-full shadow-2xl overflow-hidden z-10 my-6 border border-slate-200 text-slate-900 flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* MODAL HEADER */}
         <div className="bg-[#043d27] text-white px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -720,6 +778,13 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
             {/* TAB 2: MANAGE INVENTORY */}
             {activeTab === 'list' && (
               <div className="p-6 space-y-3 max-h-[75vh] overflow-y-auto">
+                {actionError && (
+                  <div className="p-3 bg-red-50 text-red-700 rounded text-xs font-semibold flex items-center gap-2 border border-red-200">
+                    <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>{actionError}</span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                   <span className="text-xs text-slate-500 font-medium">
                     Click any item below to toggle Sold Out status or delete.
@@ -762,8 +827,10 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
 
                         <div className="flex items-center gap-2 shrink-0">
                           <button
-                            onClick={() => toggleSoldStatus(item.id)}
-                            className={`px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
+                            type="button"
+                            disabled={busyProductId === item.id}
+                            onClick={() => handleToggleSold(item.id)}
+                            className={`px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                               isSold
                                 ? 'bg-slate-200 text-slate-700 hover:bg-[#8ef5b5] hover:text-[#007243]'
                                 : 'bg-[#8ef5b5] text-[#007243] hover:bg-slate-200 hover:text-slate-700'
@@ -783,8 +850,10 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
                           </button>
 
                           <button
-                            onClick={() => deleteProduct(item.id)}
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            type="button"
+                            disabled={busyProductId === item.id}
+                            onClick={() => handleDeleteProduct(item.id, item.title)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                             title="Delete Product"
                           >
                             <Trash2 className="w-4 h-4" />

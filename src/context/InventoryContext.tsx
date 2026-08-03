@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Product } from '@/types/product';
 import { db } from '@/lib/firebase';
+import { ensureFirebaseAuth } from '@/lib/ensureFirebaseAuth';
 import {
   collection,
   addDoc,
@@ -57,6 +58,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const addProduct = async (newProdData: Omit<Product, 'id' | 'createdAt'> & { id?: string }) => {
     try {
+      await ensureFirebaseAuth();
+
       const productToAdd = {
         title: newProdData.title,
         sellingPrice: newProdData.sellingPrice,
@@ -86,10 +89,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const toggleSoldStatus = async (id: string) => {
     const target = products.find((p) => p.id === id);
-    if (!target) return;
-    const nextStatus = target.status === 'Available' ? 'Sold' : 'Available';
+    if (!target) {
+      throw new Error('Product not found.');
+    }
+    const nextStatus = target.status === 'Sold' ? 'Available' : 'Sold';
 
     try {
+      await ensureFirebaseAuth();
       await updateDoc(doc(db, 'products', id), { status: nextStatus });
       // onSnapshot will automatically update the local state
     } catch (e) {
@@ -100,6 +106,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const deleteProduct = async (id: string) => {
     try {
+      await ensureFirebaseAuth();
       await deleteDoc(doc(db, 'products', id));
       // onSnapshot will automatically update the local state
     } catch (e) {
