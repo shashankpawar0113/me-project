@@ -70,19 +70,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     try {
       const savedAdmin = localStorage.getItem('malik_admin_session_v1');
-      if (savedAdmin === 'true') {
+      if (savedAdmin) {
+        let adminObj: any = null;
+        try {
+          adminObj = savedAdmin.startsWith('{')
+            ? JSON.parse(savedAdmin)
+            : { email: ADMIN_EMAIL, name: 'Malik Admin', role: 'master_admin' };
+        } catch {
+          adminObj = { email: ADMIN_EMAIL, name: 'Malik Admin', role: 'master_admin' };
+        }
+
+        const adminEmail = adminObj.email || ADMIN_EMAIL;
+        const isMaster = adminEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
         setCurrentUser({
-          uid: 'admin_master_0113',
-          email: ADMIN_EMAIL,
-          displayName: 'Malik Admin',
+          uid: isMaster ? 'admin_master_0113' : `admin_${adminEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          email: adminEmail,
+          displayName: adminObj.name || (isMaster ? 'Malik Admin' : 'Staff'),
         } as User);
+
         setUserData({
-          uid: 'admin_master_0113',
-          name: 'Malik Admin',
-          email: ADMIN_EMAIL,
-          phone: '+91 70785 23738',
+          uid: isMaster ? 'admin_master_0113' : `admin_${adminEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          name: adminObj.name || (isMaster ? 'Malik Admin' : 'Staff'),
+          email: adminEmail,
+          phone: '',
           createdAt: new Date().toISOString(),
-          role: 'admin',
+          role: adminObj.role === 'master_admin' || isMaster ? 'admin' : 'customer',
         });
       } else {
         const savedCustomer = localStorage.getItem('malik_customer_session_v1');
@@ -210,7 +223,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUserData(adminProfile);
 
       try {
-        localStorage.setItem('malik_admin_session_v1', 'true');
+        localStorage.setItem('malik_admin_session_v1', JSON.stringify({
+          email: ADMIN_EMAIL,
+          name: 'Malik Admin',
+          role: 'master_admin',
+        }));
       } catch (e) {}
 
       // Best effort sync with Firebase Auth
@@ -288,7 +305,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserData(teamAdminProfile);
 
         try {
-          localStorage.setItem('malik_admin_session_v1', 'true');
+          localStorage.setItem('malik_admin_session_v1', JSON.stringify({
+            email: cleanEmail,
+            name: adminData.name || 'Authorized Staff',
+            role: adminData.role || 'staff',
+          }));
         } catch (e) {}
 
         // Ensure real Firebase Auth session for Firestore reads

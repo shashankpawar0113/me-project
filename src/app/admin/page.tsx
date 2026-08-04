@@ -90,7 +90,10 @@ export default function AdminPortalPage() {
   // This prevents Firebase Auth state flicker from logging out the admin.
   const isAdminSessionActive = (() => {
     if (typeof window === 'undefined') return false;
-    try { return localStorage.getItem('malik_admin_session_v1') === 'true'; } catch { return false; }
+    try {
+      const val = localStorage.getItem('malik_admin_session_v1');
+      return !!val && val !== 'false';
+    } catch { return false; }
   })();
 
   // Admin Login Form State
@@ -115,20 +118,26 @@ export default function AdminPortalPage() {
   // Current admin account & role permissions
   const currentAdminAccount = useMemo(() => {
     const userEmail = currentUser?.email?.toLowerCase() || '';
-    if (!userEmail || userEmail === ADMIN_EMAIL.toLowerCase() || userEmail.startsWith('shashankpawar0113@gmail')) {
+    if (userEmail === ADMIN_EMAIL.toLowerCase() || userEmail.startsWith('shashankpawar0113@gmail')) {
       return DEFAULT_MASTER_ADMIN;
     }
-    return adminAccounts.find((a) => a.email.toLowerCase() === userEmail) || {
+    if (!userEmail) {
+      return null;
+    }
+    const found = adminAccounts.find((a) => a.email.toLowerCase() === userEmail);
+    if (found) return found;
+
+    return {
       id: 'current_admin',
       email: userEmail,
-      name: currentUser?.displayName || 'Admin',
-      role: (userData?.role === 'admin' ? 'master_admin' : 'staff') as AdminAccount['role'],
+      name: currentUser?.displayName || 'Staff',
+      role: 'staff' as AdminAccount['role'],
       createdAt: '',
     };
-  }, [currentUser, userData, adminAccounts]);
+  }, [currentUser, adminAccounts]);
 
-  const currentRole = currentAdminAccount?.role || 'master_admin';
-  const canViewRevenue = isMasterAdmin || currentRole === 'master_admin' || userData?.role === 'admin';
+  const currentRole = currentAdminAccount?.role || 'staff';
+  const canViewRevenue = isMasterAdmin || currentRole === 'master_admin';
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newAdminName, setNewAdminName] = useState('');
   const [newAdminPassword, setNewAdminPassword] = useState('');
@@ -524,15 +533,23 @@ export default function AdminPortalPage() {
       const gEmail = gUser?.email?.toLowerCase() || '';
 
       const isMasterVariant = gEmail.startsWith('shashankpawar0113@gmail') || gEmail === ADMIN_EMAIL.toLowerCase();
-      const isTeamAdmin = adminAccounts.some((a) => a.email.toLowerCase() === gEmail);
+      const matchedAccount = adminAccounts.find((a) => a.email.toLowerCase() === gEmail);
 
-      if (!isMasterVariant && !isTeamAdmin && !isAdmin) {
+      if (!isMasterVariant && !matchedAccount && !isAdmin) {
         try { localStorage.removeItem('malik_admin_session_v1'); } catch (e) {}
-        throw new Error(`Access Denied: Google account "${gEmail || 'User'}" is not an authorized Admin.`);
+        throw new Error(`Access Denied: Google account "${gEmail || 'User'}" is not an authorized account.`);
       }
 
-      try { localStorage.setItem('malik_admin_session_v1', 'true'); } catch (e) {}
-      setLoginSuccess('✅ Google Admin Authentication successful!');
+      const role = isMasterVariant ? 'master_admin' : (matchedAccount?.role || 'staff');
+
+      try {
+        localStorage.setItem('malik_admin_session_v1', JSON.stringify({
+          email: gEmail,
+          name: gUser?.displayName || matchedAccount?.name || 'Admin',
+          role: role,
+        }));
+      } catch (e) {}
+      setLoginSuccess('✅ Google Authentication successful!');
     } catch (err: any) {
       console.error('Admin Google sign in error:', err);
       setLoginError(err.message || 'Google Admin Sign In failed.');
