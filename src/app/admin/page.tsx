@@ -93,24 +93,6 @@ export default function AdminPortalPage() {
     try { return localStorage.getItem('malik_admin_session_v1') === 'true'; } catch { return false; }
   })();
 
-  // Current admin account & role permissions
-  const currentAdminAccount = useMemo(() => {
-    const userEmail = currentUser?.email?.toLowerCase() || '';
-    if (!userEmail || userEmail === ADMIN_EMAIL.toLowerCase() || userEmail.startsWith('shashankpawar0113@gmail')) {
-      return DEFAULT_MASTER_ADMIN;
-    }
-    return adminAccounts.find((a) => a.email.toLowerCase() === userEmail) || {
-      id: 'current_admin',
-      email: userEmail,
-      name: currentUser?.displayName || 'Admin',
-      role: (userData?.role === 'admin' ? 'master_admin' : 'staff') as AdminAccount['role'],
-      createdAt: '',
-    };
-  }, [currentUser, userData, adminAccounts]);
-
-  const currentRole = currentAdminAccount?.role || 'master_admin';
-  const canViewRevenue = isMasterAdmin || currentRole === 'master_admin' || userData?.role === 'admin';
-
   // Admin Login Form State
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -129,6 +111,24 @@ export default function AdminPortalPage() {
   // Admin Accounts Management State
   const [adminAccounts, setAdminAccounts] = useState<AdminAccount[]>([DEFAULT_MASTER_ADMIN]);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+
+  // Current admin account & role permissions
+  const currentAdminAccount = useMemo(() => {
+    const userEmail = currentUser?.email?.toLowerCase() || '';
+    if (!userEmail || userEmail === ADMIN_EMAIL.toLowerCase() || userEmail.startsWith('shashankpawar0113@gmail')) {
+      return DEFAULT_MASTER_ADMIN;
+    }
+    return adminAccounts.find((a) => a.email.toLowerCase() === userEmail) || {
+      id: 'current_admin',
+      email: userEmail,
+      name: currentUser?.displayName || 'Admin',
+      role: (userData?.role === 'admin' ? 'master_admin' : 'staff') as AdminAccount['role'],
+      createdAt: '',
+    };
+  }, [currentUser, userData, adminAccounts]);
+
+  const currentRole = currentAdminAccount?.role || 'master_admin';
+  const canViewRevenue = isMasterAdmin || currentRole === 'master_admin' || userData?.role === 'admin';
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newAdminName, setNewAdminName] = useState('');
   const [newAdminPassword, setNewAdminPassword] = useState('');
