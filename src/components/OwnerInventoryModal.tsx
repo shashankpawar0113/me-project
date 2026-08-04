@@ -21,7 +21,7 @@ const PRESET_SAMPLE_IMAGES = [
 
 const OWNER_PASSWORD_KEY = 'malik_owner_password_v1';
 const DEFAULT_PASSWORD = '1234';
-const AUTHORIZED_OWNER_NUMBERS = ['9318446981', '7078523738'];
+const AUTHORIZED_OWNER_NUMBERS = ['9318446981'];
 
 export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen, onClose, initialTab }) => {
   const { products, addProduct, updateProduct, toggleSoldStatus, deleteProduct, resetToSeedData } = useInventory();
@@ -201,10 +201,10 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
     setPhoneError('');
 
     const cleanPhone = verifyPhoneInput.replace(/\D/g, '');
-    const isValidOwner = AUTHORIZED_OWNER_NUMBERS.some((num) => cleanPhone.includes(num));
+    const isValidOwner = cleanPhone.includes('9318446981');
 
     if (!isValidOwner) {
-      setPhoneError('Verification Failed! Password can only be changed if the authorized owner phone number is entered.');
+      setPhoneError('Verification Failed! Only authorized owner phone number (9318446981) can reset the password/PIN.');
       return;
     }
 
