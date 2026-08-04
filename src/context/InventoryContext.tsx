@@ -19,6 +19,7 @@ import {
 interface InventoryContextType {
   products: Product[];
   addProduct: (product: Omit<Product, 'id' | 'createdAt'> & { id?: string }) => Promise<void>;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   toggleSoldStatus: (id: string) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   resetToSeedData: () => Promise<void>;
@@ -87,6 +88,20 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  const updateProduct = async (id: string, updates: Partial<Product>) => {
+    try {
+      await ensureFirebaseAuth();
+      await updateDoc(doc(db, 'products', id), updates);
+    } catch (e) {
+      console.error('Failed to update product in Firestore:', e);
+      // Fallback local update if Firestore update fails or rules block
+      setProducts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, ...updates } : p))
+      );
+      throw e;
+    }
+  };
+
   const toggleSoldStatus = async (id: string) => {
     const target = products.find((p) => p.id === id);
     if (!target) {
@@ -124,6 +139,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       value={{
         products,
         addProduct,
+        updateProduct,
         toggleSoldStatus,
         deleteProduct,
         resetToSeedData,

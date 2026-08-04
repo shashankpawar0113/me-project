@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { ensureFirebaseAuth } from '@/lib/ensureFirebaseAuth';
-import { X, Plus, CheckCircle2, Ban, Trash2, RotateCcw, PackagePlus, ListFilter, UploadCloud, Tag, Lock, KeyRound, ShieldAlert, LogOut, PhoneCall, HelpCircle, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { X, Plus, CheckCircle2, Ban, Trash2, RotateCcw, PackagePlus, ListFilter, UploadCloud, Tag, Lock, KeyRound, ShieldAlert, LogOut, PhoneCall, HelpCircle, ArrowLeft, ShieldCheck, Pencil, Check } from 'lucide-react';
 
 interface OwnerInventoryModalProps {
   isOpen: boolean;
@@ -22,7 +22,7 @@ const DEFAULT_PASSWORD = '1234';
 const AUTHORIZED_OWNER_NUMBERS = ['9318446981', '7078523738'];
 
 export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen, onClose }) => {
-  const { products, addProduct, toggleSoldStatus, deleteProduct, resetToSeedData } = useInventory();
+  const { products, addProduct, updateProduct, toggleSoldStatus, deleteProduct, resetToSeedData } = useInventory();
   const [activeTab, setActiveTab] = useState<'add' | 'list' | 'settings'>('add');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,6 +42,12 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
   // Change Password State (when logged in)
   const [newPassword, setNewPassword] = useState('');
   const [changePasswordSuccess, setChangePasswordSuccess] = useState('');
+
+  // Inline Product Editing State
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editMrp, setEditMrp] = useState('');
 
   // Form State
   const [customId, setCustomId] = useState('');
@@ -79,6 +85,35 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
     } catch (error) {
       console.error('Firebase auth for owner tools failed:', error);
       setActionError(getFirestoreActionError(error, 'update'));
+    }
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editTitle.trim()) {
+      alert('Product title cannot be empty.');
+      return;
+    }
+    const numPrice = parseFloat(editPrice);
+    if (isNaN(numPrice) || numPrice < 0) {
+      alert('Please enter a valid price.');
+      return;
+    }
+    const numMrp = parseFloat(editMrp) || numPrice * 1.2;
+
+    setActionError('');
+    setBusyProductId(id);
+    try {
+      await updateProduct(id, {
+        title: editTitle.trim(),
+        sellingPrice: numPrice,
+        mrp: numMrp,
+      });
+      setEditingProductId(null);
+    } catch (error) {
+      console.error('Update product failed:', error);
+      setActionError(getFirestoreActionError(error, 'update'));
+    } finally {
+      setBusyProductId(null);
     }
   };
 
@@ -787,7 +822,7 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
 
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                   <span className="text-xs text-slate-500 font-medium">
-                    Click any item below to toggle Sold Out status or delete.
+                    Edit price & title, toggle Sold Out status, or delete items.
                   </span>
                   <button
                     onClick={resetToSeedData}
@@ -802,63 +837,133 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
                 <div className="space-y-2">
                   {products.map((item) => {
                     const isSold = item.status === 'Sold';
+                    const isEditing = editingProductId === item.id;
                     return (
                       <div
                         key={item.id}
-                        className="flex items-center justify-between p-3 rounded bg-slate-50 border border-slate-200 gap-3"
+                        className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded bg-slate-50 border border-slate-200 gap-3"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-start sm:items-center gap-3 w-full sm:w-auto min-w-0 flex-1">
                           <img
                             src={item.images[0]}
                             alt=""
-                            className="w-12 h-12 rounded object-cover border border-slate-200 shrink-0"
+                            className="w-12 h-12 rounded object-cover border border-slate-200 shrink-0 mt-0.5 sm:mt-0"
                           />
-                          <div className="min-w-0">
-                            <div className="font-bold text-xs text-slate-900 truncate">
-                              {item.title}
+                          {isEditing ? (
+                            <div className="flex-1 space-y-2 w-full">
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Product Name (Title)</label>
+                                <input
+                                  type="text"
+                                  value={editTitle}
+                                  onChange={(e) => setEditTitle(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 bg-white border border-[#043d27] rounded text-xs text-slate-900 font-semibold focus:outline-none"
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Selling Price (₹)</label>
+                                  <input
+                                    type="number"
+                                    value={editPrice}
+                                    onChange={(e) => setEditPrice(e.target.value)}
+                                    className="w-full px-2 py-1 bg-white border border-[#043d27] rounded text-xs text-slate-900 font-bold focus:outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">MRP (₹)</label>
+                                  <input
+                                    type="number"
+                                    value={editMrp}
+                                    onChange={(e) => setEditMrp(e.target.value)}
+                                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs text-slate-900 focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={busyProductId === item.id}
+                                  onClick={() => handleSaveEdit(item.id)}
+                                  className="px-3 py-1 bg-[#043d27] hover:bg-[#002b1b] text-white text-xs font-bold rounded flex items-center gap-1 shadow-xs transition-colors"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Save Changes</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingProductId(null)}
+                                  className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
                             </div>
-                            <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                              <span className="font-bold text-[#043d27]">₹{item.sellingPrice}</span>
-                              <span>•</span>
-                              <span className="px-1.5 py-0.2 bg-emerald-100 text-[#043d27] rounded text-[10px] font-bold">{item.category}</span>
+                          ) : (
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-xs text-slate-900 truncate">
+                                {item.title}
+                              </div>
+                              <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                                <span className="font-bold text-[#043d27]">₹{item.sellingPrice}</span>
+                                <span>•</span>
+                                <span className="px-1.5 py-0.2 bg-emerald-100 text-[#043d27] rounded text-[10px] font-bold">{item.category}</span>
+                              </div>
                             </div>
+                          )}
+                        </div>
+
+                        {!isEditing && (
+                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingProductId(item.id);
+                                setEditTitle(item.title);
+                                setEditPrice(item.sellingPrice.toString());
+                                setEditMrp(item.mrp ? item.mrp.toString() : (item.sellingPrice * 1.2).toString());
+                              }}
+                              className="px-2.5 py-1.5 text-slate-700 hover:text-[#043d27] bg-white hover:bg-emerald-50 border border-slate-200 rounded text-xs font-bold flex items-center gap-1 transition-colors shadow-xs"
+                              title="Edit Name & Price"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-[#043d27]" />
+                              <span>Edit</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={busyProductId === item.id}
+                              onClick={() => handleToggleSold(item.id)}
+                              className={`px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                                isSold
+                                  ? 'bg-slate-200 text-slate-700 hover:bg-[#8ef5b5] hover:text-[#007243]'
+                                  : 'bg-[#8ef5b5] text-[#007243] hover:bg-slate-200 hover:text-slate-700'
+                              }`}
+                            >
+                              {isSold ? (
+                                <>
+                                  <Ban className="w-3.5 h-3.5" />
+                                  <span>Mark Available</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Mark Sold Out</span>
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={busyProductId === item.id}
+                              onClick={() => handleDeleteProduct(item.id, item.title)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                              title="Delete Product"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            disabled={busyProductId === item.id}
-                            onClick={() => handleToggleSold(item.id)}
-                            className={`px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-                              isSold
-                                ? 'bg-slate-200 text-slate-700 hover:bg-[#8ef5b5] hover:text-[#007243]'
-                                : 'bg-[#8ef5b5] text-[#007243] hover:bg-slate-200 hover:text-slate-700'
-                            }`}
-                          >
-                            {isSold ? (
-                              <>
-                                <Ban className="w-3.5 h-3.5" />
-                                <span>Mark Available</span>
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Mark Sold Out</span>
-                              </>
-                            )}
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={busyProductId === item.id}
-                            onClick={() => handleDeleteProduct(item.id, item.title)}
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                            title="Delete Product"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        )}
                       </div>
                     );
                   })}
