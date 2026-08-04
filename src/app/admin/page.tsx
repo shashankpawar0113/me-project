@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth, ADMIN_EMAIL } from '@/context/AuthContext';
 import { useInventory } from '@/context/InventoryContext';
-import { db } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import {
   collection,
   getDocs,
@@ -57,9 +57,9 @@ export interface AdminAccount {
 const DEFAULT_MASTER_ADMIN: AdminAccount = {
   id: 'master_admin_01',
   email: ADMIN_EMAIL,
-  name: 'Malik Master Admin',
+  name: 'Malik Admin',
   role: 'master_admin',
-  createdAt: 'System Primary Master',
+  createdAt: 'System Primary Admin',
 };
 
 const MAX_MASTER_ADMINS = 3;
@@ -67,7 +67,7 @@ const MAX_MASTER_ADMINS = 3;
 const ROLE_LABELS: Record<AdminAccount['role'], string> = {
   staff: 'Staff',
   member: 'Member',
-  master_admin: 'Master Admin',
+  master_admin: 'Admin',
 };
 
 const ROLE_COLORS: Record<AdminAccount['role'], string> = {
@@ -77,7 +77,7 @@ const ROLE_COLORS: Record<AdminAccount['role'], string> = {
 };
 
 export default function AdminPortalPage() {
-  const { currentUser, userData, isAdmin, signIn, resetPassword, logOut, loading: authLoading } = useAuth();
+  const { currentUser, userData, isAdmin, signIn, signInWithGoogle, resetPassword, logOut, loading: authLoading } = useAuth();
   const { products } = useInventory();
 
   // Check if currently logged in as Primary Master Admin
@@ -92,6 +92,24 @@ export default function AdminPortalPage() {
     if (typeof window === 'undefined') return false;
     try { return localStorage.getItem('malik_admin_session_v1') === 'true'; } catch { return false; }
   })();
+
+  // Current admin account & role permissions
+  const currentAdminAccount = useMemo(() => {
+    const userEmail = currentUser?.email?.toLowerCase() || '';
+    if (!userEmail || userEmail === ADMIN_EMAIL.toLowerCase() || userEmail.startsWith('shashankpawar0113@gmail')) {
+      return DEFAULT_MASTER_ADMIN;
+    }
+    return adminAccounts.find((a) => a.email.toLowerCase() === userEmail) || {
+      id: 'current_admin',
+      email: userEmail,
+      name: currentUser?.displayName || 'Admin',
+      role: (userData?.role === 'admin' ? 'master_admin' : 'staff') as AdminAccount['role'],
+      createdAt: '',
+    };
+  }, [currentUser, userData, adminAccounts]);
+
+  const currentRole = currentAdminAccount?.role || 'master_admin';
+  const canViewRevenue = isMasterAdmin || currentRole === 'master_admin' || userData?.role === 'admin';
 
   // Admin Login Form State
   const [adminEmail, setAdminEmail] = useState('');
@@ -360,40 +378,59 @@ export default function AdminPortalPage() {
     setRoleChangeError('');
     setRoleChangeSubmitting(true);
     try {
-      // Assigning Master Admin always requires PIN
+      // Assigning Admin always requires PIN
       if (roleChangeTo === 'master_admin') {
         if (!checkIsValidSecurityPinOrPhone(roleChangePin)) {
-          setRoleChangeError('❌ Invalid Master Security PIN / Phone.');
+          setRoleChangeError('❌ Invalid Security PIN / Phone.');
           setRoleChangeSubmitting(false);
           return;
         }
         const currentMasterCount = adminAccounts.filter(
-          (a) => a.role === 'master_admin' && a.email !== roleChangeTarget.email
+          (a) => a.role === 'master_admin' && a.email.toLowerCase() !== roleChangeTarget.email.toLowerCase()
         ).length;
         if (currentMasterCount >= MAX_MASTER_ADMINS) {
-          setRoleChangeError(`❌ Maximum ${MAX_MASTER_ADMINS} Master Admins allowed.`);
+          setRoleChangeError(`❌ Maximum ${MAX_MASTER_ADMINS} Admins allowed.`);
           setRoleChangeSubmitting(false);
           return;
         }
       }
-      // Demoting a Master Admin also requires PIN
+      // Demoting an Admin also requires PIN
       if (roleChangeTarget.role === 'master_admin' && roleChangeTo !== 'master_admin') {
         if (!checkIsValidSecurityPinOrPhone(roleChangePin)) {
-          setRoleChangeError('❌ Master Security PIN required to demote a Master Admin.');
+          setRoleChangeError('❌ Security PIN required to demote an Admin.');
           setRoleChangeSubmitting(false);
           return;
         }
       }
-      // Cannot change primary master admin role
+      // Cannot change primary admin role
       if (roleChangeTarget.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-        setRoleChangeError('❌ Primary Master Admin role cannot be changed.');
+        setRoleChangeError('❌ Primary Admin role cannot be changed.');
         setRoleChangeSubmitting(false);
         return;
       }
 
       const docId = roleChangeTarget.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-      await updateDoc(doc(db, 'admins', docId), { role: roleChangeTo });
+      
+      // Best-effort Firestore write
+      try {
+        await setDoc(doc(db, 'admins', docId), { role: roleChangeTo }, { merge: true });
+      } catch (fsErr) {
+        console.warn('Firestore role update skipped (localStorage fallback active):', fsErr);
+      }
 
+      // Always update localStorage
+      try {
+        const saved = localStorage.getItem('malik_admin_accounts_v1');
+        const existing: AdminAccount[] = saved ? JSON.parse(saved) : [];
+        const updated = existing.map((a) =>
+          a.email.toLowerCase() === roleChangeTarget.email.toLowerCase()
+            ? { ...a, role: roleChangeTo }
+            : a
+        );
+        localStorage.setItem('malik_admin_accounts_v1', JSON.stringify(updated));
+      } catch (e) {}
+
+      // Update local state
       setAdminAccounts((prev) =>
         prev.map((a) =>
           a.email.toLowerCase() === roleChangeTarget.email.toLowerCase()
@@ -411,24 +448,42 @@ export default function AdminPortalPage() {
     }
   };
 
-
   const handleRemoveAdmin = async (email: string) => {
+    const cleanTargetEmail = email.toLowerCase();
     if (!isMasterAdmin) {
-      alert('Only Primary Master Admin can remove admin accounts.');
+      alert('Only Primary Admin can remove admin accounts.');
       return;
     }
 
-    if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-      alert('The Primary Master Admin account cannot be removed.');
+    if (cleanTargetEmail === ADMIN_EMAIL.toLowerCase()) {
+      alert('The Primary Admin account cannot be removed.');
       return;
     }
 
     if (!window.confirm(`Are you sure you want to revoke admin access for ${email}?`)) return;
 
     try {
-      const docId = email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-      await deleteDoc(doc(db, 'admins', docId));
-      setAdminAccounts((prev) => prev.filter((a) => a.email.toLowerCase() !== email.toLowerCase()));
+      const docId = cleanTargetEmail.replace(/[^a-zA-Z0-9]/g, '_');
+
+      // Best-effort Firestore delete
+      try {
+        await deleteDoc(doc(db, 'admins', docId));
+      } catch (fsErr) {
+        console.warn('Firestore deletion skipped (localStorage fallback active):', fsErr);
+      }
+
+      // Always update localStorage
+      try {
+        const saved = localStorage.getItem('malik_admin_accounts_v1');
+        if (saved) {
+          const existing: AdminAccount[] = JSON.parse(saved);
+          const filtered = existing.filter((a) => a.email.toLowerCase() !== cleanTargetEmail);
+          localStorage.setItem('malik_admin_accounts_v1', JSON.stringify(filtered));
+        }
+      } catch (e) {}
+
+      // Update local state
+      setAdminAccounts((prev) => prev.filter((a) => a.email.toLowerCase() !== cleanTargetEmail));
     } catch (err: any) {
       console.error('Failed to remove admin:', err);
     }
@@ -453,6 +508,34 @@ export default function AdminPortalPage() {
     } catch (err: any) {
       console.error('Admin login error:', err);
       setLoginError(err.message || 'Invalid admin email or password.');
+    } finally {
+      setLoginSubmitting(false);
+    }
+  };
+
+  // Handle Admin Google Sign In
+  const handleAdminGoogleSignIn = async () => {
+    setLoginError('');
+    setLoginSuccess('');
+    setLoginSubmitting(true);
+    try {
+      await signInWithGoogle();
+      const gUser = auth.currentUser;
+      const gEmail = gUser?.email?.toLowerCase() || '';
+
+      const isMasterVariant = gEmail.startsWith('shashankpawar0113@gmail') || gEmail === ADMIN_EMAIL.toLowerCase();
+      const isTeamAdmin = adminAccounts.some((a) => a.email.toLowerCase() === gEmail);
+
+      if (!isMasterVariant && !isTeamAdmin && !isAdmin) {
+        try { localStorage.removeItem('malik_admin_session_v1'); } catch (e) {}
+        throw new Error(`Access Denied: Google account "${gEmail || 'User'}" is not an authorized Admin.`);
+      }
+
+      try { localStorage.setItem('malik_admin_session_v1', 'true'); } catch (e) {}
+      setLoginSuccess('✅ Google Admin Authentication successful!');
+    } catch (err: any) {
+      console.error('Admin Google sign in error:', err);
+      setLoginError(err.message || 'Google Admin Sign In failed.');
     } finally {
       setLoginSubmitting(false);
     }
@@ -1112,6 +1195,29 @@ export default function AdminPortalPage() {
                 </>
               )}
             </button>
+
+            {/* DIVIDER */}
+            <div className="flex items-center gap-3 my-2">
+              <div className="flex-1 h-px bg-slate-800" />
+              <span className="text-[10px] text-slate-500 font-medium uppercase">or</span>
+              <div className="flex-1 h-px bg-slate-800" />
+            </div>
+
+            {/* GOOGLE ADMIN SIGN IN */}
+            <button
+              type="button"
+              onClick={handleAdminGoogleSignIn}
+              disabled={loginSubmitting}
+              className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs rounded-lg flex items-center justify-center gap-2.5 shadow-sm border border-slate-700 disabled:opacity-50 transition-all"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+              </svg>
+              <span>Sign In with Google (Admin)</span>
+            </button>
           </form>
 
           <div className="pt-4 border-t border-slate-800 text-center">
@@ -1205,7 +1311,7 @@ export default function AdminPortalPage() {
               <span>Total Revenue</span>
               <DollarSign className="w-4 h-4 text-emerald-400" />
             </div>
-            {isMasterAdmin ? (
+            {canViewRevenue ? (
               <>
                 <div className="text-xl font-black text-emerald-400 font-mono">
                   ₹{metrics.totalRev.toLocaleString('en-IN')}
@@ -1217,7 +1323,7 @@ export default function AdminPortalPage() {
                 <div className="text-xl font-black text-slate-600 font-mono flex items-center gap-1">
                   <Lock className="w-4 h-4" /> ••••••
                 </div>
-                <div className="text-[10px] text-slate-500">Master Admin only</div>
+                <div className="text-[10px] text-slate-500">Admin role only</div>
               </>
             )}
           </div>
@@ -1922,15 +2028,15 @@ export default function AdminPortalPage() {
               <div>
                 <input
                   type="text"
-                  placeholder="Master Security PIN / Phone required"
+                  placeholder="Security PIN / Phone required"
                   value={roleChangePin}
                   onChange={(e) => setRoleChangePin(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-800 border border-purple-500/50 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
                 />
                 <p className="text-[10px] text-purple-400 mt-1">
                   {roleChangeTo === 'master_admin'
-                    ? '⚠️ Master Admin role requires PIN verification.'
-                    : '⚠️ Demoting a Master Admin requires PIN verification.'}
+                    ? '⚠️ Admin role requires PIN verification.'
+                    : '⚠️ Demoting an Admin requires PIN verification.'}
                 </p>
               </div>
             )}
