@@ -92,6 +92,23 @@ export const AuthModal: React.FC = () => {
     }
   };
 
+  const handleGuestSignIn = () => {
+    try {
+      const guestCustomer = {
+        uid: 'guest_customer_' + Date.now(),
+        name: 'Guest Customer',
+        email: 'guest@malikenterprises.com',
+        phone: '',
+        createdAt: new Date().toISOString(),
+        role: 'customer' as const,
+      };
+      localStorage.setItem('malik_customer_session_v1', JSON.stringify(guestCustomer));
+      window.location.reload();
+    } catch (e) {
+      closeAuthModal();
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="fixed inset-0" onClick={closeAuthModal} />
@@ -155,9 +172,21 @@ export const AuthModal: React.FC = () => {
         {/* FORM CONTENT */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+              {error.includes('unauthorized-domain') && (
+                <button
+                  type="button"
+                  onClick={handleGuestSignIn}
+                  className="mt-1 py-1.5 px-3 bg-red-700 hover:bg-red-800 text-white font-bold text-[11px] rounded-md transition-colors self-start flex items-center gap-1.5 shadow-sm"
+                >
+                  <span>Continue as Guest / Local Account</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              )}
             </div>
           )}
 
