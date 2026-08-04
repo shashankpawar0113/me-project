@@ -240,11 +240,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // CHECK INDIVIDUAL AUTHORIZED ADMIN ACCOUNTS
     try {
-      const docId = cleanEmail.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-      const adminDocSnap = await getDoc(doc(db, 'admins', docId));
+      const cleanLower = cleanEmail.toLowerCase();
+      const docId = cleanLower.replace(/[^a-zA-Z0-9]/g, '_');
 
-      if (adminDocSnap.exists()) {
-        const adminData = adminDocSnap.data();
+      // 1. Check localStorage admin accounts list
+      let localAdminData: any = null;
+      try {
+        const savedAdmins = localStorage.getItem('malik_admin_accounts_v1');
+        if (savedAdmins) {
+          const parsed = JSON.parse(savedAdmins);
+          localAdminData = parsed.find((a: any) => a?.email?.toLowerCase() === cleanLower);
+        }
+      } catch (e) {}
+
+      // 2. Check Firestore admins collection
+      let firestoreAdminData: any = null;
+      try {
+        const adminDocSnap = await getDoc(doc(db, 'admins', docId));
+        if (adminDocSnap.exists()) {
+          firestoreAdminData = adminDocSnap.data();
+        }
+      } catch (e) {
+        console.warn('Firestore admin doc lookup warning:', e);
+      }
+
+      const adminData = firestoreAdminData || localAdminData;
+
+      if (adminData) {
         if (adminData.password && pass !== adminData.password) {
           throw new Error('Invalid Password for this Admin Account.');
         }

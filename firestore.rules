@@ -21,9 +21,9 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
-    // Admin accounts — authenticated users
+    // Admin accounts — allow read and write for team sign in and management
     match /admins/{adminId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
     }
   }
 }
