@@ -207,24 +207,33 @@ export default function AdminPortalPage() {
     }
   };
 
-  // Fetch all admin accounts from Firestore
+  // Fetch all admin accounts from Firestore + localStorage fallback
   const fetchAdminAccounts = async () => {
+    // Load localStorage accounts first
+    const localAccounts: AdminAccount[] = (() => {
+      try {
+        const saved = localStorage.getItem('malik_admin_accounts_v1');
+        return saved ? JSON.parse(saved) : [];
+      } catch { return []; }
+    })();
+
+    const map = new Map<string, AdminAccount>();
+    map.set(DEFAULT_MASTER_ADMIN.email.toLowerCase(), DEFAULT_MASTER_ADMIN);
+    // Seed from localStorage
+    localAccounts.forEach((a: AdminAccount) => map.set(a.email.toLowerCase(), a));
+
     try {
       const adminsRef = collection(db, 'admins');
       const snap = await getDocs(adminsRef);
-      const fetched: AdminAccount[] = [];
       snap.forEach((docSnap) => {
-        fetched.push({ id: docSnap.id, ...docSnap.data() } as AdminAccount);
+        const acc = { id: docSnap.id, ...docSnap.data() } as AdminAccount;
+        map.set(acc.email.toLowerCase(), acc); // Firestore overrides localStorage
       });
-
-      const map = new Map<string, AdminAccount>();
-      map.set(DEFAULT_MASTER_ADMIN.email.toLowerCase(), DEFAULT_MASTER_ADMIN);
-      fetched.forEach((a) => map.set(a.email.toLowerCase(), a));
-
-      setAdminAccounts(Array.from(map.values()));
     } catch (e) {
-      setAdminAccounts([DEFAULT_MASTER_ADMIN]);
+      console.warn('Firestore admin fetch failed, using localStorage only:', e);
     }
+
+    setAdminAccounts(Array.from(map.values()));
   };
 
   useEffect(() => {
@@ -306,14 +315,33 @@ export default function AdminPortalPage() {
         createdAt: new Date().toISOString(),
       };
 
-      await setDoc(doc(db, 'admins', docId), newAccount, { merge: true });
+      // Try Firestore first; fall back to localStorage if permissions denied
+      let firestoreOk = false;
+      try {
+        await setDoc(doc(db, 'admins', docId), newAccount, { merge: true });
+        firestoreOk = true;
+      } catch (fsErr: any) {
+        console.warn('Firestore admin save failed, using localStorage fallback:', fsErr?.message);
+      }
+
+      // Always save to localStorage as source of truth
+      try {
+        const saved = localStorage.getItem('malik_admin_accounts_v1');
+        const existing: AdminAccount[] = saved ? JSON.parse(saved) : [];
+        const filtered = existing.filter((a) => a.email.toLowerCase() !== cleanEmail);
+        localStorage.setItem('malik_admin_accounts_v1', JSON.stringify([...filtered, newAccount]));
+      } catch (e) {}
 
       setAdminAccounts((prev) => {
         const filtered = prev.filter((a) => a.email.toLowerCase() !== cleanEmail);
         return [...filtered, newAccount];
       });
 
-      setAdminSuccess(`Successfully added ${cleanEmail} as ${ROLE_LABELS[newAdminRole]}!`);
+      setAdminSuccess(
+        `✅ ${cleanEmail} added as ${ROLE_LABELS[newAdminRole]}!${
+          !firestoreOk ? ' (Saved locally — update Firestore rules to sync across devices)' : ''
+        }`
+      );
       setNewAdminEmail('');
       setNewAdminName('');
       setNewAdminPassword('');
