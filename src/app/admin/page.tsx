@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth, ADMIN_EMAIL } from '@/context/AuthContext';
 import { useInventory } from '@/context/InventoryContext';
+import { OwnerInventoryModal } from '@/components/OwnerInventoryModal';
 import { auth, db } from '@/lib/firebase';
 import {
   collection,
@@ -114,6 +115,10 @@ export default function AdminPortalPage() {
   // Admin Accounts Management State
   const [adminAccounts, setAdminAccounts] = useState<AdminAccount[]>([DEFAULT_MASTER_ADMIN]);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+
+  // Store Inventory Management Modal State
+  const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
+  const [inventoryModalTab, setInventoryModalTab] = useState<'add' | 'list'>('add');
 
   // Current admin account & role permissions
   const currentAdminAccount = useMemo(() => {
@@ -1272,6 +1277,18 @@ export default function AdminPortalPage() {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => {
+                setInventoryModalTab('list');
+                setIsInventoryModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-xs font-bold text-emerald-300 border border-emerald-500/40 transition-colors"
+              title="Add, Edit or Remove Catalog Products"
+            >
+              <Package className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Products ({products.length})</span>
+            </button>
+
+            <button
               onClick={() => setIsAdminModalOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-xs font-bold text-purple-300 border border-purple-500/40 transition-colors"
             >
@@ -1394,6 +1411,45 @@ export default function AdminPortalPage() {
               <span>Add / Remove</span>
               <span>→</span>
             </div>
+          </div>
+        </div>
+
+        {/* STORE CATALOG & PRODUCTS MANAGEMENT CARD */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold shrink-0">
+              <Package className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                <span>Store Catalog & Products</span>
+                <span className="px-2 py-0.5 bg-slate-800 text-slate-300 text-[11px] rounded-full font-mono font-bold border border-slate-700">{products.length} Products</span>
+              </h3>
+              <p className="text-xs text-slate-400">Add new items to store catalog or edit/remove existing products in real-time.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              onClick={() => {
+                setInventoryModalTab('add');
+                setIsInventoryModalOpen(true);
+              }}
+              className="flex-1 sm:flex-initial px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Add New Product</span>
+            </button>
+            <button
+              onClick={() => {
+                setInventoryModalTab('list');
+                setIsInventoryModalOpen(true);
+              }}
+              className="flex-1 sm:flex-initial px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-lg transition-colors border border-slate-700 flex items-center justify-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-red-400" />
+              <span>Manage / Remove Products</span>
+            </button>
           </div>
         </div>
 
@@ -2087,6 +2143,13 @@ export default function AdminPortalPage() {
 
       {/* SECURITY CREDENTIALS MANAGEMENT MODAL */}
       {renderSecuritySettingsModal()}
+
+      {/* STORE INVENTORY MANAGEMENT MODAL */}
+      <OwnerInventoryModal
+        isOpen={isInventoryModalOpen}
+        onClose={() => setIsInventoryModalOpen(false)}
+        initialTab={inventoryModalTab}
+      />
     </div>
   );
 }

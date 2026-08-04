@@ -2,12 +2,14 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useInventory } from '@/context/InventoryContext';
+import { useAuth } from '@/context/AuthContext';
 import { ensureFirebaseAuth } from '@/lib/ensureFirebaseAuth';
 import { X, Plus, CheckCircle2, Ban, Trash2, RotateCcw, PackagePlus, ListFilter, UploadCloud, Tag, Lock, KeyRound, ShieldAlert, LogOut, PhoneCall, HelpCircle, ArrowLeft, ShieldCheck, Pencil, Check } from 'lucide-react';
 
 interface OwnerInventoryModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: 'add' | 'list' | 'settings';
 }
 
 const PRESET_SAMPLE_IMAGES = [
@@ -21,10 +23,20 @@ const OWNER_PASSWORD_KEY = 'malik_owner_password_v1';
 const DEFAULT_PASSWORD = '1234';
 const AUTHORIZED_OWNER_NUMBERS = ['9318446981', '7078523738'];
 
-export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen, onClose }) => {
+export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen, onClose, initialTab }) => {
   const { products, addProduct, updateProduct, toggleSoldStatus, deleteProduct, resetToSeedData } = useInventory();
-  const [activeTab, setActiveTab] = useState<'add' | 'list' | 'settings'>('add');
+  const { currentUser } = useAuth();
+  const [activeTab, setActiveTab] = useState<'add' | 'list' | 'settings'>(initialTab || 'add');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialTab) setActiveTab(initialTab);
+      if (currentUser?.email) {
+        setIsAuthenticated(true);
+      }
+    }
+  }, [isOpen, initialTab, currentUser]);
 
   // Authentication & Forgot Password State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
