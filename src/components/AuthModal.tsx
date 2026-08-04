@@ -49,7 +49,10 @@ export const AuthModal: React.FC = () => {
     } catch (err: any) {
       console.error('Auth error:', err);
       let msg = err.message || 'An error occurred during authentication.';
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+      if (err.code === 'auth/unauthorized-domain' || err.message?.includes('unauthorized-domain')) {
+        const domain = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+        msg = `Domain "${domain}" is not authorized in Firebase. Add "${domain}" to Firebase Console → Authentication → Settings → Authorized domains.`;
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         msg = 'Invalid email or password. Please check your credentials.';
       } else if (err.code === 'auth/email-already-in-use') {
         msg = 'An account with this email already exists. Please Sign In.';
@@ -78,7 +81,12 @@ export const AuthModal: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Google sign-in error:', err);
-      setError(err.message || 'Google Sign-In failed.');
+      let msg = err.message || 'Google Sign-In failed.';
+      if (err.code === 'auth/unauthorized-domain' || err.message?.includes('unauthorized-domain')) {
+        const domain = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+        msg = `Domain "${domain}" is not authorized in Firebase. Add "${domain}" to Firebase Console → Authentication → Settings → Authorized domains.`;
+      }
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
