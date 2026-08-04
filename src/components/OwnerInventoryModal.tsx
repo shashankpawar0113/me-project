@@ -10,6 +10,7 @@ interface OwnerInventoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialTab?: 'add' | 'list' | 'settings';
+  autoUnlock?: boolean;
 }
 
 const PRESET_SAMPLE_IMAGES = [
@@ -23,26 +24,29 @@ const OWNER_PASSWORD_KEY = 'malik_owner_password_v1';
 const DEFAULT_PASSWORD = '1234';
 const AUTHORIZED_OWNER_NUMBERS = ['9318446981'];
 
-export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen, onClose, initialTab }) => {
+export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen, onClose, initialTab, autoUnlock = false }) => {
   const { products, addProduct, updateProduct, toggleSoldStatus, deleteProduct, resetToSeedData } = useInventory();
-  const { currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'add' | 'list' | 'settings'>(initialTab || 'add');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (isOpen) {
-      if (initialTab) setActiveTab(initialTab);
-      if (currentUser?.email) {
-        setIsAuthenticated(true);
-      }
-    }
-  }, [isOpen, initialTab, currentUser]);
 
   // Authentication & Forgot Password State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isForgotPasswordMode, setIsForgotPasswordMode] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialTab) setActiveTab(initialTab);
+      if (autoUnlock) {
+        setIsAuthenticated(true);
+      }
+    } else {
+      if (!autoUnlock) {
+        setIsAuthenticated(false);
+      }
+    }
+  }, [isOpen, initialTab, autoUnlock]);
   const [storedPassword, setStoredPassword] = useState(DEFAULT_PASSWORD);
 
   // Phone Verification & Reset Password State

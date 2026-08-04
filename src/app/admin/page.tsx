@@ -2149,6 +2149,7 @@ export default function AdminPortalPage() {
         isOpen={isInventoryModalOpen}
         onClose={() => setIsInventoryModalOpen(false)}
         initialTab={inventoryModalTab}
+        autoUnlock={true}
       />
     </div>
   );

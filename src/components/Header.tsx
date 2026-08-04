@@ -308,7 +308,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="pt-6 border-t border-slate-100 space-y-3 mt-6">
               <div className="flex items-center gap-2 text-xs text-slate-600">
                 <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
-                <span>Quality Refurbished Guarantee</span>
+                <span>Quality Guarantee</span>
               </div>
               <a
                 href="https://wa.me/917078523738?text=Hi%20Malik%20Enterprises!"

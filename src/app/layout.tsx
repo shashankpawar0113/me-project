@@ -5,7 +5,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { CartProvider } from '@/context/CartContext';
 
 export const metadata: Metadata = {
-  title: 'Malik Enterprises | Quality Refurbished Goods, Unbeatable Prices',
+  title: 'Malik Enterprises | Quality Goods, Unbeatable Prices',
   description: 'Shop pre-owned electronics, furniture, and more. Direct delivery, order via WhatsApp.',
 };
 

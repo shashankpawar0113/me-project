@@ -15,7 +15,7 @@ export const Hero: React.FC = () => {
 
       <div className="relative max-w-xl mx-auto space-y-3">
         <h2 className="text-2xl sm:text-3xl font-extrabold text-emerald-950 tracking-tight leading-tight">
-          Quality Refurbished Goods, Unbeatable Prices
+          Quality Goods, Unbeatable Prices
         </h2>
         
         <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-normal px-2">
