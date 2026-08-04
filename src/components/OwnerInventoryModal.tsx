@@ -204,7 +204,7 @@ export const OwnerInventoryModal: React.FC<OwnerInventoryModalProps> = ({ isOpen
     const isValidOwner = cleanPhone.includes('9318446981');
 
     if (!isValidOwner) {
-      setPhoneError('Verification Failed! Only authorized owner phone number (9318446981) can reset the password/PIN.');
+      setPhoneError('Verification Failed! Only the authorized owner phone number can reset the password/PIN.');
       return;
     }
 
