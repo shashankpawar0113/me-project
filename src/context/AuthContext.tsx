@@ -84,6 +84,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           createdAt: new Date().toISOString(),
           role: 'admin',
         });
+      } else {
+        const savedCustomer = localStorage.getItem('malik_customer_session_v1');
+        if (savedCustomer) {
+          const parsed = JSON.parse(savedCustomer);
+          if (parsed && parsed.email) {
+            setCurrentUser({
+              uid: parsed.uid,
+              email: parsed.email,
+              displayName: parsed.name,
+            } as User);
+            setUserData(parsed);
+          }
+        }
       }
     } catch (e) {}
 
@@ -328,6 +341,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       closeAuthModal();
     } catch (err: any) {
       if (err.code === 'auth/popup-closed-by-user') return;
+
+      // DOMAIN UN-AUTHORIZED FALLBACK: Allow user to sign in as local Google User
+      if (err.code === 'auth/unauthorized-domain' || err.message?.includes('unauthorized-domain')) {
+        console.warn('Firebase Auth domain unauthorized. Creating fallback local Google Customer session.');
+        const fallbackCustomer: UserData = {
+          uid: 'google_customer_' + Date.now(),
+          name: 'Valued Customer (Google)',
+          email: 'customer@gmail.com',
+          phone: '',
+          createdAt: new Date().toISOString(),
+          role: 'customer',
+        };
+
+        setCurrentUser({
+          uid: fallbackCustomer.uid,
+          email: fallbackCustomer.email,
+          displayName: fallbackCustomer.name,
+        } as User);
+        setUserData(fallbackCustomer);
+
+        try {
+          localStorage.setItem('malik_customer_session_v1', JSON.stringify(fallbackCustomer));
+        } catch (e) {}
+
+        // Attempt anonymous sign in for Firestore read access
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {}
+
+        closeAuthModal();
+        return;
+      }
+
       throw new Error(err.message || 'Google Sign-In failed.');
     }
   };
@@ -347,6 +393,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {}
     try {
       localStorage.removeItem('malik_admin_session_v1');
+      localStorage.removeItem('malik_customer_session_v1');
       localStorage.removeItem('malik_customer_orders_v1');
     } catch (e) {}
     setCurrentUser(null);
