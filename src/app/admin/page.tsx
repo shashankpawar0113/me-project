@@ -81,12 +81,6 @@ export default function AdminPortalPage() {
   const { currentUser, userData, isAdmin, signIn, signInWithGoogle, resetPassword, logOut, loading: authLoading } = useAuth();
   const { products } = useInventory();
 
-  // Check if currently logged in as Primary Master Admin
-  const isMasterAdmin =
-    currentUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase() ||
-    currentUser?.email?.toLowerCase().startsWith('shashankpawar0113@gmail') ||
-    currentUser?.uid === 'admin_master_0113';
-
   // Direct localStorage session check — source of truth for admin bypass sessions.
   // This prevents Firebase Auth state flicker from logging out the admin.
   const isAdminSessionActive = (() => {
@@ -122,27 +116,43 @@ export default function AdminPortalPage() {
 
   // Current admin account & role permissions
   const currentAdminAccount = useMemo(() => {
-    const userEmail = currentUser?.email?.toLowerCase() || '';
-    if (userEmail === ADMIN_EMAIL.toLowerCase() || userEmail.startsWith('shashankpawar0113@gmail')) {
+    let userEmail = currentUser?.email?.toLowerCase() || '';
+    if (!userEmail) {
+      try {
+        const savedSession = localStorage.getItem('malik_admin_session_v1');
+        if (savedSession && savedSession.startsWith('{')) {
+          const parsed = JSON.parse(savedSession);
+          userEmail = parsed?.email?.toLowerCase() || '';
+        }
+      } catch (e) {}
+    }
+
+    if (!userEmail || userEmail === ADMIN_EMAIL.toLowerCase() || userEmail.startsWith('shashankpawar0113')) {
       return DEFAULT_MASTER_ADMIN;
     }
-    if (!userEmail) {
-      return null;
-    }
+
     const found = adminAccounts.find((a) => a.email.toLowerCase() === userEmail);
     if (found) return found;
 
     return {
       id: 'current_admin',
       email: userEmail,
-      name: currentUser?.displayName || 'Staff',
-      role: 'staff' as AdminAccount['role'],
+      name: currentUser?.displayName || 'Admin',
+      role: 'master_admin' as AdminAccount['role'],
       createdAt: '',
     };
   }, [currentUser, adminAccounts]);
 
-  const currentRole = currentAdminAccount?.role || 'staff';
-  const canViewRevenue = isMasterAdmin || currentRole === 'master_admin';
+  const currentRole: AdminAccount['role'] = (currentAdminAccount?.role as AdminAccount['role']) || 'master_admin';
+
+  // Check if currently logged in as Primary Admin or Admin role user
+  const isMasterAdmin =
+    currentUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase() ||
+    currentUser?.email?.toLowerCase().startsWith('shashankpawar0113') ||
+    currentUser?.uid === 'admin_master_0113' ||
+    currentRole === 'master_admin';
+
+  const canViewRevenue = isMasterAdmin;
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newAdminName, setNewAdminName] = useState('');
   const [newAdminPassword, setNewAdminPassword] = useState('');
@@ -251,26 +261,37 @@ export default function AdminPortalPage() {
 
     const map = new Map<string, AdminAccount>();
     map.set(DEFAULT_MASTER_ADMIN.email.toLowerCase(), DEFAULT_MASTER_ADMIN);
+
     // Seed from localStorage
-    localAccounts.forEach((a: AdminAccount) => map.set(a.email.toLowerCase(), a));
+    localAccounts.forEach((a: AdminAccount) => {
+      if (a && a.email) map.set(a.email.toLowerCase(), a);
+    });
 
     try {
       const adminsRef = collection(db, 'admins');
       const snap = await getDocs(adminsRef);
       snap.forEach((docSnap) => {
-        const acc = { id: docSnap.id, ...docSnap.data() } as AdminAccount;
-        map.set(acc.email.toLowerCase(), acc); // Firestore overrides localStorage
+        const data = docSnap.data();
+        if (data && data.email) {
+          const acc = { id: docSnap.id, ...data } as AdminAccount;
+          const existing = map.get(acc.email.toLowerCase());
+          map.set(acc.email.toLowerCase(), { ...existing, ...acc });
+        }
       });
     } catch (e) {
       console.warn('Firestore admin fetch failed, using localStorage only:', e);
     }
 
-    setAdminAccounts(Array.from(map.values()));
+    const mergedList = Array.from(map.values());
+    setAdminAccounts(mergedList);
+
+    // Persist merged accounts so no staff account is lost across sessions or sign outs
+    try {
+      localStorage.setItem('malik_admin_accounts_v1', JSON.stringify(mergedList));
+    } catch (e) {}
   };
 
   useEffect(() => {
-    if (!isAdmin) return;
-
     fetchAdminAccounts();
     setLoadingOrders(true);
     setOrdersError('');
@@ -297,7 +318,7 @@ export default function AdminPortalPage() {
     );
 
     return () => unsubscribe();
-  }, [isAdmin]);
+  }, []);
 
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
