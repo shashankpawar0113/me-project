@@ -1806,7 +1806,7 @@ export default function AdminPortalPage() {
                 <form onSubmit={handleAddAdmin} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
                   <div className="font-bold text-xs text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                     <Plus className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Add Authorized Admin Account</span>
+                    <span>Add Authorized Account</span>
                   </div>
 
                   {adminError && (
@@ -1825,7 +1825,7 @@ export default function AdminPortalPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-400 mb-1">
-                          Admin Full Name
+                          Full Name
                         </label>
                         <input
                           type="text"
@@ -1838,7 +1838,7 @@ export default function AdminPortalPage() {
 
                       <div>
                         <label className="block text-[11px] font-bold text-slate-400 mb-1">
-                          Admin Email Address <span className="text-red-400">*</span>
+                          Email Address <span className="text-red-400">*</span>
                         </label>
                         <input
                           type="email"
@@ -1853,12 +1853,12 @@ export default function AdminPortalPage() {
 
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 mb-1">
-                        Assign Admin Password <span className="text-red-400">*</span>
+                        Assign Password <span className="text-red-400">*</span>
                       </label>
                       <input
                         type="password"
                         required
-                        placeholder="Set unique password for this admin account"
+                        placeholder="Set unique password for this account"
                         value={newAdminPassword}
                         onChange={(e) => setNewAdminPassword(e.target.value)}
                         className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
@@ -1890,12 +1890,12 @@ export default function AdminPortalPage() {
                         <div className="mt-2">
                           <input
                             type="text"
-                            placeholder="Enter Master Security PIN / Phone to confirm"
+                            placeholder="Enter Security PIN / Phone to confirm"
                             value={newAdminMasterPin}
                             onChange={(e) => setNewAdminMasterPin(e.target.value)}
                             className="w-full px-3 py-2 bg-slate-900 border border-purple-500/50 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
                           />
-                          <p className="text-[10px] text-purple-400 mt-1">⚠️ Master Admin can view revenue. Max 3 allowed.</p>
+                          <p className="text-[10px] text-purple-400 mt-1">⚠️ Admin role can view revenue. Max 3 allowed.</p>
                         </div>
                       )}
                     </div>
@@ -1911,7 +1911,7 @@ export default function AdminPortalPage() {
                     ) : (
                       <Plus className="w-4 h-4" />
                     )}
-                    <span>Add Admin as {ROLE_LABELS[newAdminRole]}</span>
+                    <span>Add as {ROLE_LABELS[newAdminRole]}</span>
                   </button>
                 </form>
               ) : (
